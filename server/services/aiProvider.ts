@@ -159,7 +159,7 @@ export class AIServiceError extends Error {
 }
 
 const CHAT_TIMEOUT_MS = 45_000;
-const PLAN_TIMEOUT_MS = 120_000;
+const PLAN_TIMEOUT_MS = process.env.VERCEL ? 55_000 : 120_000;
 
 function isReasoningModel(model: string): boolean {
   return /^(gpt-5|gpt-6|o[1-9])/i.test(model);

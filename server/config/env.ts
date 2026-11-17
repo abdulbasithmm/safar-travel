@@ -8,20 +8,34 @@ export interface FirebasePublicConfig {
 }
 
 function loadFirebaseConfig(): FirebasePublicConfig {
-  const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
-  if (!fs.existsSync(configPath)) {
+  const candidates = [
+    path.resolve(process.cwd(), 'firebase-applet-config.json'),
+    path.resolve(
+      path.dirname(new URL(import.meta.url).pathname),
+      '../../firebase-applet-config.json',
+    ),
+  ];
+
+  const configPath = candidates.find((candidate) => fs.existsSync(candidate));
+  const fallbackProjectId =
+    process.env.FIREBASE_PROJECT_ID?.trim() ||
+    process.env.VITE_FIREBASE_PROJECT_ID?.trim() ||
+    '';
+  const fallbackDbId =
+    process.env.FIRESTORE_DATABASE_ID?.trim() || '(default)';
+
+  if (!configPath) {
     return {
-      projectId: process.env.FIREBASE_PROJECT_ID || '',
-      firestoreDatabaseId: process.env.FIRESTORE_DATABASE_ID || '(default)',
+      projectId: fallbackProjectId,
+      firestoreDatabaseId: fallbackDbId,
     };
   }
 
   const raw = fs.readFileSync(configPath, 'utf8');
   const parsed = JSON.parse(raw) as Partial<FirebasePublicConfig>;
   return {
-    projectId: parsed.projectId || process.env.FIREBASE_PROJECT_ID || '',
-    firestoreDatabaseId:
-      parsed.firestoreDatabaseId || process.env.FIRESTORE_DATABASE_ID || '(default)',
+    projectId: parsed.projectId || fallbackProjectId,
+    firestoreDatabaseId: parsed.firestoreDatabaseId || fallbackDbId,
   };
 }
 

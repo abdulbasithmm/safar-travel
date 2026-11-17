@@ -29,6 +29,74 @@ export class PhotoClientError extends Error {
   }
 }
 
+function buildPhotoFailureDetails(params: {
+  endpoint: string;
+  status: number;
+  code?: string;
+  contentType?: string;
+  isHtmlProxy?: boolean;
+  serverMessage?: string;
+  rawSnippet?: string;
+  defaultMessage: string;
+}): { code: string; message: string } {
+  const {
+    endpoint,
+    status,
+    code,
+    contentType,
+    isHtmlProxy,
+    serverMessage,
+    rawSnippet,
+    defaultMessage,
+  } = params;
+
+  const resolvedCode =
+    code ||
+    (status === 404
+      ? 'PHOTO_API_NOT_FOUND'
+      : isHtmlProxy || status === 502 || status === 503 || status === 504
+        ? 'PHOTO_GATEWAY_UNAVAILABLE'
+        : 'PHOTO_API_ERROR');
+
+  console.error('[SAFAR Photos] API error', {
+    endpoint,
+    status,
+    code: resolvedCode,
+    contentType: contentType || 'unknown',
+    detail: serverMessage || rawSnippet || defaultMessage,
+  });
+
+  if (status === 404) {
+    return {
+      code: resolvedCode,
+      message:
+        'Destination photography API endpoint is unavailable (HTTP 404). Please ensure backend API routes are deployed and try again.',
+    };
+  }
+
+  if (isHtmlProxy || status === 502 || status === 503 || status === 504) {
+    return {
+      code: resolvedCode,
+      message:
+        'Destination photography service is temporarily unavailable or timed out. Please retry in a moment.',
+    };
+  }
+
+  if (status === 429) {
+    return {
+      code: resolvedCode,
+      message:
+        serverMessage ||
+        'Too many destination photo requests right now. Please wait a moment and retry.',
+    };
+  }
+
+  return {
+    code: resolvedCode,
+    message: serverMessage || defaultMessage,
+  };
+}
+
 export async function searchDestinationPhotos(
   params: {
     query: string;
@@ -50,7 +118,11 @@ export async function searchDestinationPhotos(
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), PHOTO_CLIENT_TIMEOUT_MS);
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, PHOTO_CLIENT_TIMEOUT_MS);
 
   const onExternalAbort = () => controller.abort();
   if (signal) {
@@ -61,6 +133,7 @@ export async function searchDestinationPhotos(
     signal.addEventListener('abort', onExternalAbort, { once: true });
   }
 
+  const endpoint = '/api/photos/search';
   try {
     const searchParams = new URLSearchParams({
       q: query,
@@ -71,29 +144,29 @@ export async function searchDestinationPhotos(
       searchParams.set('context', context);
     }
 
-    const response = await fetch(`/api/photos/search?${searchParams.toString()}`, {
+    const response = await fetch(`${endpoint}?${searchParams.toString()}`, {
       method: 'GET',
       signal: controller.signal,
     });
 
-    const { data, isHtmlProxy } = await parseApiJsonSafely<
-      Partial<DestinationPhotoResult> & { error?: string; code?: string }
-    >(response);
+    const { data, isHtmlProxy, contentType, rawSnippet } =
+      await parseApiJsonSafely<
+        Partial<DestinationPhotoResult> & { error?: string; code?: string }
+      >(response);
 
-    if (isHtmlProxy) {
-      throw new PhotoClientError(
-        503,
-        'PROXY_UNAVAILABLE',
-        'Destination photography service is temporarily unavailable. Please retry.',
-      );
-    }
-
-    if (!response.ok || !data || !Array.isArray(data.photos)) {
-      throw new PhotoClientError(
-        response.status,
-        data?.code || 'PHOTO_SEARCH_FAILED',
-        data?.error || 'Unable to load destination photos right now.',
-      );
+    if (isHtmlProxy || !response.ok || !data || !Array.isArray(data.photos)) {
+      const failure = buildPhotoFailureDetails({
+        endpoint,
+        status: response.status,
+        code: data?.code,
+        contentType,
+        isHtmlProxy,
+        serverMessage: data?.error,
+        rawSnippet,
+        defaultMessage:
+          'Unable to load destination photos right now. Please try again.',
+      });
+      throw new PhotoClientError(response.status, failure.code, failure.message);
     }
 
     const result = data as DestinationPhotoResult;
@@ -109,16 +182,26 @@ export async function searchDestinationPhotos(
     if (error instanceof PhotoClientError) {
       throw error;
     }
+    if (timedOut) {
+      console.error('[SAFAR Photos] Request timed out', {
+        endpoint,
+        timeoutMs: PHOTO_CLIENT_TIMEOUT_MS,
+      });
+      throw new PhotoClientError(
+        408,
+        'PHOTO_TIMEOUT',
+        'Destination photography request timed out. Please retry.',
+      );
+    }
     if (error instanceof Error && error.name === 'AbortError') {
       throw error;
     }
-    throw new PhotoClientError(
-      0,
-      'PHOTO_NETWORK_ERROR',
+    const message =
       error instanceof Error
         ? error.message
-        : 'Network error loading destination photographs.',
-    );
+        : 'Network error loading destination photographs.';
+    console.error('[SAFAR Photos] Network failure', { endpoint, message });
+    throw new PhotoClientError(0, 'PHOTO_NETWORK_ERROR', `${message} Please retry.`);
   } finally {
     clearTimeout(timeout);
     if (signal) {
@@ -135,7 +218,11 @@ export async function fetchFeaturedDestinations(
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), PHOTO_CLIENT_TIMEOUT_MS);
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, PHOTO_CLIENT_TIMEOUT_MS);
 
   const onExternalAbort = () => controller.abort();
   if (signal) {
@@ -146,32 +233,38 @@ export async function fetchFeaturedDestinations(
     signal.addEventListener('abort', onExternalAbort, { once: true });
   }
 
+  const endpoint = '/api/photos/featured';
   try {
-    const response = await fetch('/api/photos/featured', {
+    const response = await fetch(endpoint, {
       method: 'GET',
       signal: controller.signal,
     });
 
-    const { data, isHtmlProxy } = await parseApiJsonSafely<{
-      destinations?: FeaturedDestinationCard[];
-      error?: string;
-      code?: string;
-    }>(response);
+    const { data, isHtmlProxy, contentType, rawSnippet } =
+      await parseApiJsonSafely<{
+        destinations?: FeaturedDestinationCard[];
+        error?: string;
+        code?: string;
+      }>(response);
 
-    if (isHtmlProxy) {
-      throw new PhotoClientError(
-        503,
-        'PROXY_UNAVAILABLE',
-        'Destination gallery is warming up. Please retry.',
-      );
-    }
-
-    if (!response.ok || !data || !Array.isArray(data.destinations)) {
-      throw new PhotoClientError(
-        response.status,
-        data?.code || 'FEATURED_PHOTOS_FAILED',
-        data?.error || 'Unable to load featured destinations.',
-      );
+    if (
+      isHtmlProxy ||
+      !response.ok ||
+      !data ||
+      !Array.isArray(data.destinations)
+    ) {
+      const failure = buildPhotoFailureDetails({
+        endpoint,
+        status: response.status,
+        code: data?.code,
+        contentType,
+        isHtmlProxy,
+        serverMessage: data?.error,
+        rawSnippet,
+        defaultMessage:
+          'Unable to load featured destinations right now. Please try again.',
+      });
+      throw new PhotoClientError(response.status, failure.code, failure.message);
     }
 
     featuredCache = {
@@ -184,16 +277,26 @@ export async function fetchFeaturedDestinations(
     if (error instanceof PhotoClientError) {
       throw error;
     }
+    if (timedOut) {
+      console.error('[SAFAR Photos] Request timed out', {
+        endpoint,
+        timeoutMs: PHOTO_CLIENT_TIMEOUT_MS,
+      });
+      throw new PhotoClientError(
+        408,
+        'PHOTO_TIMEOUT',
+        'Featured destinations took too long to respond. Please retry.',
+      );
+    }
     if (error instanceof Error && error.name === 'AbortError') {
       throw error;
     }
-    throw new PhotoClientError(
-      0,
-      'PHOTO_NETWORK_ERROR',
+    const message =
       error instanceof Error
         ? error.message
-        : 'Network error loading featured destinations.',
-    );
+        : 'Network error loading featured destinations.';
+    console.error('[SAFAR Photos] Network failure', { endpoint, message });
+    throw new PhotoClientError(0, 'PHOTO_NETWORK_ERROR', `${message} Please retry.`);
   } finally {
     clearTimeout(timeout);
     if (signal) {

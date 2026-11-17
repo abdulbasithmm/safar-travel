@@ -71,7 +71,7 @@ export class PhotoServiceError extends Error {
   }
 }
 
-const PHOTO_FETCH_TIMEOUT_MS = 12_000;
+const PHOTO_FETCH_TIMEOUT_MS = 8_000;
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 300;
 const WIKIMEDIA_USER_AGENT =
@@ -1132,7 +1132,7 @@ export async function getFeaturedDestinationCards(): Promise<FeaturedDestination
         const res = await searchDestinationPhotography({
           query: item.query,
           category: 'all',
-          limit: 8,
+          limit: 4,
         });
         return {
           id: item.id,
@@ -1167,12 +1167,17 @@ export async function getFeaturedDestinationCards(): Promise<FeaturedDestination
 
   try {
     const cards = await inflightFeatured;
-    if (cards.some((c) => c.photo !== null)) {
-      featuredCardsCache.set(keySig, {
-        expiresAt: Date.now() + CACHE_TTL_MS,
-        cards,
-      });
+    if (!cards.some((c) => c.photo !== null)) {
+      throw new PhotoServiceError(
+        424,
+        'FEATURED_PHOTOS_UNAVAILABLE',
+        'Unable to load destination photography from upstream providers right now. Please retry shortly.',
+      );
     }
+    featuredCardsCache.set(keySig, {
+      expiresAt: Date.now() + CACHE_TTL_MS,
+      cards,
+    });
     return cards;
   } finally {
     inflightFeatured = null;

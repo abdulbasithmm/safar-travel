@@ -14,10 +14,12 @@ import {
 import {
   ChevronLeft,
   ChevronRight,
+  Clock,
   Compass,
   LocateFixed,
   MapPin,
   Navigation,
+  Route as RouteIcon,
 } from 'lucide-react';
 import type { StructuredTripPlan } from '@/types/trip';
 
@@ -48,6 +50,56 @@ interface ResolvedPlaceData {
 interface DestinationAnchor {
   position: google.maps.LatLngLiteral;
   viewport: google.maps.LatLngBounds | null;
+}
+
+interface RouteLegMetric {
+  fromStopId: string;
+  toStopId: string;
+  distanceMeters: number;
+  durationMillis: number | null;
+}
+
+interface DayRouteData {
+  day: number;
+  routes: google.maps.routes.Route[];
+  legsByToStopId: Record<string, RouteLegMetric>;
+  unavailableToStopIds: Record<string, true>;
+  distanceMeters: number;
+  durationMillis: number;
+  hasDuration: boolean;
+  routedSegments: number;
+  totalSegments: number;
+  unavailable: boolean;
+}
+
+function formatRouteDistance(meters: number): string {
+  if (!Number.isFinite(meters) || meters < 0) return '';
+  if (meters < 1000) {
+    return `${Math.round(meters)} m`;
+  }
+  if (meters < 100000) {
+    return `${(meters / 1000).toFixed(1)} km`;
+  }
+  return `${Math.round(meters / 1000)} km`;
+}
+
+function formatRouteDuration(millis: number | null | undefined): string {
+  if (typeof millis !== 'number' || !Number.isFinite(millis) || millis < 0) {
+    return '';
+  }
+  if (millis === 0) {
+    return '0 min';
+  }
+  const totalMinutes = Math.round(millis / 60000);
+  if (totalMinutes < 1) {
+    return '< 1 min';
+  }
+  if (totalMinutes < 60) {
+    return `${totalMinutes} min`;
+  }
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
 }
 
 interface ItineraryMapProps {
@@ -159,6 +211,8 @@ interface ItineraryMarkerItemProps {
   zIndex: number;
   currentIndex: number;
   totalResolvedCount: number;
+  legFromPrev?: RouteLegMetric;
+  routeUnavailableFromPrev?: boolean;
   onSelect: () => void;
   onSelectPrev?: () => void;
   onSelectNext?: () => void;
@@ -177,6 +231,8 @@ function ItineraryMarkerItem({
   zIndex,
   currentIndex,
   totalResolvedCount,
+  legFromPrev,
+  routeUnavailableFromPrev,
   onSelect,
   onSelectPrev,
   onSelectNext,
@@ -287,6 +343,24 @@ function ItineraryMarkerItem({
               </p>
             )}
 
+            {legFromPrev && (
+              <div className="inline-flex items-center gap-1.5 rounded-lg bg-black/[0.04] px-2.5 py-1 text-[11px] font-medium text-wandor-text tabular-nums">
+                <RouteIcon className="w-3 h-3 text-wandor-prompt shrink-0" />
+                <span>
+                  Drive from previous: {formatRouteDistance(legFromPrev.distanceMeters)}
+                  {formatRouteDuration(legFromPrev.durationMillis)
+                    ? ` · ${formatRouteDuration(legFromPrev.durationMillis)}`
+                    : ''}
+                </span>
+              </div>
+            )}
+
+            {!legFromPrev && routeUnavailableFromPrev && (
+              <p className="text-[11px] text-wandor-muted italic">
+                Driving route unavailable from previous stop
+              </p>
+            )}
+
             {(onJumpToSchedule || totalResolvedCount > 1) && (
               <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-black/10">
                 {onJumpToSchedule ? (
@@ -354,6 +428,7 @@ function ItineraryMapContent({
   const map = useMap();
   const placesLib = useMapsLibrary('places');
   const coreLib = useMapsLibrary('core');
+  const routesLib = useMapsLibrary('routes');
   const loadingStatus = useApiLoadingStatus();
 
   const [hoveredStopId, setHoveredStopId] = useState<string | null>(null);
@@ -365,9 +440,16 @@ function ItineraryMapContent({
     total: number;
   } | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
+  const [dayRoutesByKey, setDayRoutesByKey] = useState<
+    Record<string, DayRouteData>
+  >({});
+  const [routesLoading, setRoutesLoading] = useState(false);
+  const [routeError, setRouteError] = useState<string | null>(null);
 
   const cacheRef = useRef<Record<string, ResolvedPlaceData | null>>({});
   const destAnchorRef = useRef<Record<string, DestinationAnchor | null>>({});
+  const routeCacheRef = useRef<Record<string, DayRouteData>>({});
+  const polylinesRef = useRef<google.maps.Polyline[]>([]);
   const quotaBlockedRef = useRef(false);
 
   const visibleStops = useMemo(() => {
@@ -562,6 +644,402 @@ function ItineraryMapContent({
     return list;
   }, [visibleStops, plan.destination, resolvedByQuery]);
 
+  // Group resolved stops by day and build stable cache keys for route computation
+  const dayRouteGroups = useMemo(() => {
+    const groupsByDay: Record<
+      number,
+      Array<{
+        stop: ItineraryMapStop & { displayOrder: number };
+        resolved: ResolvedPlaceData;
+      }>
+    > = {};
+
+    for (const item of resolvedStops) {
+      if (!groupsByDay[item.stop.day]) {
+        groupsByDay[item.stop.day] = [];
+      }
+      groupsByDay[item.stop.day].push(item);
+    }
+
+    const language = plan.language === 'ml' ? 'ml' : 'en';
+    const orderedDays = Object.keys(groupsByDay)
+      .map(Number)
+      .sort((a, b) => a - b);
+
+    return orderedDays
+      .filter((day) => groupsByDay[day].length >= 2)
+      .map((day) => {
+        const items = groupsByDay[day];
+        const stopsSignature = items
+          .map(
+            (item) =>
+              `${item.stop.id}@${item.resolved.position.lat.toFixed(5)},${item.resolved.position.lng.toFixed(5)}`,
+          )
+          .join('|');
+        const cacheKey = `${plan.destination.trim().toLowerCase()}::day-${day}::${language}::${stopsSignature}`;
+        return { day, items, cacheKey, language };
+      });
+  }, [resolvedStops, plan.destination, plan.language]);
+
+  // Compute driving routes using Google Maps Platform Routes API (Route.computeRoutes)
+  useEffect(() => {
+    if (
+      !routesLib ||
+      resolvingProgress !== null ||
+      quotaBlockedRef.current ||
+      dayRouteGroups.length === 0
+    ) {
+      setRoutesLoading(false);
+      return;
+    }
+
+    const pendingGroups = dayRouteGroups.filter(
+      (group) => !(group.cacheKey in routeCacheRef.current),
+    );
+
+    if (pendingGroups.length === 0) {
+      setRoutesLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setRoutesLoading(true);
+    setRouteError(null);
+
+    const computePairwiseFallback = async (
+      group: (typeof dayRouteGroups)[number],
+    ): Promise<DayRouteData> => {
+      const collectedRoutes: google.maps.routes.Route[] = [];
+      const legsByToStopId: Record<string, RouteLegMetric> = {};
+      const unavailableToStopIds: Record<string, true> = {};
+      let distanceMeters = 0;
+      let durationMillis = 0;
+      let hasDuration = false;
+      let routedSegments = 0;
+      const totalSegments = group.items.length - 1;
+
+      for (let i = 0; i < totalSegments; i += 1) {
+        if (cancelled || quotaBlockedRef.current) break;
+        const fromItem = group.items[i];
+        const toItem = group.items[i + 1];
+
+        try {
+          const response = await routesLib.Route.computeRoutes({
+            origin: fromItem.resolved.position,
+            destination: toItem.resolved.position,
+            travelMode: 'DRIVING',
+            computeAlternativeRoutes: false,
+            fields: ['path', 'distanceMeters', 'durationMillis', 'legs'],
+            language: group.language,
+            internalUsageAttributionIds: ['gmp_mcp_codeassist_v1_aistudio'],
+          });
+
+          if (cancelled) break;
+          const segRoute = response.routes?.[0];
+          const segLeg = segRoute?.legs?.[0];
+          const rawDistance =
+            typeof segRoute?.distanceMeters === 'number'
+              ? segRoute.distanceMeters
+              : typeof segLeg?.distanceMeters === 'number'
+                ? segLeg.distanceMeters
+                : null;
+          const segDuration =
+            typeof segRoute?.durationMillis === 'number'
+              ? segRoute.durationMillis
+              : typeof segLeg?.durationMillis === 'number'
+                ? segLeg.durationMillis
+                : null;
+          const hasValidRoute =
+            Boolean(segRoute) &&
+            (rawDistance !== null || (segRoute?.path?.length ?? 0) > 0);
+
+          if (segRoute && hasValidRoute) {
+            const segDistance = rawDistance ?? 0;
+            collectedRoutes.push(segRoute);
+            distanceMeters += segDistance;
+            if (segDuration !== null) {
+              durationMillis += segDuration;
+              hasDuration = true;
+            }
+            routedSegments += 1;
+            legsByToStopId[toItem.stop.id] = {
+              fromStopId: fromItem.stop.id,
+              toStopId: toItem.stop.id,
+              distanceMeters: segDistance,
+              durationMillis: segDuration,
+            };
+          } else {
+            unavailableToStopIds[toItem.stop.id] = true;
+          }
+        } catch (err) {
+          if (cancelled) break;
+          if (isQuotaError(err)) {
+            quotaBlockedRef.current = true;
+            window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
+            setRouteError(
+              'Unable to calculate routes right now due to Maps quota limits.',
+            );
+            throw err;
+          }
+          unavailableToStopIds[toItem.stop.id] = true;
+        }
+      }
+
+      return {
+        day: group.day,
+        routes: collectedRoutes,
+        legsByToStopId,
+        unavailableToStopIds,
+        distanceMeters,
+        durationMillis,
+        hasDuration,
+        routedSegments,
+        totalSegments,
+        unavailable: routedSegments === 0,
+      };
+    };
+
+    const runComputeRoutes = async () => {
+      for (const group of pendingGroups) {
+        if (cancelled || quotaBlockedRef.current) break;
+
+        const totalSegments = group.items.length - 1;
+        // ComputeRoutes supports up to 25 intermediate waypoints (27 total stops)
+        const cappedItems = group.items.slice(0, 27);
+        const origin = cappedItems[0].resolved.position;
+        const destination = cappedItems[cappedItems.length - 1].resolved.position;
+        const intermediates: google.maps.routes.Waypoint[] = cappedItems
+          .slice(1, -1)
+          .map((item) => ({ location: item.resolved.position }));
+
+        try {
+          const response = await routesLib.Route.computeRoutes({
+            origin,
+            destination,
+            ...(intermediates.length > 0 ? { intermediates } : {}),
+            travelMode: 'DRIVING',
+            computeAlternativeRoutes: false,
+            fields: ['path', 'distanceMeters', 'durationMillis', 'legs'],
+            language: group.language,
+            internalUsageAttributionIds: ['gmp_mcp_codeassist_v1_aistudio'],
+          });
+
+          if (cancelled) return;
+
+          const primaryRoute = response.routes?.[0];
+          const legs = primaryRoute?.legs ?? [];
+
+          if (primaryRoute && legs.length >= cappedItems.length - 1) {
+            const legsByToStopId: Record<string, RouteLegMetric> = {};
+            const unavailableToStopIds: Record<string, true> = {};
+            let summedDistance = 0;
+            let summedDuration = 0;
+            let hasDuration = false;
+
+            for (let i = 0; i < cappedItems.length - 1; i += 1) {
+              const fromItem = cappedItems[i];
+              const toItem = cappedItems[i + 1];
+              const leg = legs[i];
+              const legDistance =
+                typeof leg?.distanceMeters === 'number' ? leg.distanceMeters : 0;
+              const legDuration =
+                typeof leg?.durationMillis === 'number' ? leg.durationMillis : null;
+
+              summedDistance += legDistance;
+              if (legDuration !== null) {
+                summedDuration += legDuration;
+                hasDuration = true;
+              }
+              legsByToStopId[toItem.stop.id] = {
+                fromStopId: fromItem.stop.id,
+                toStopId: toItem.stop.id,
+                distanceMeters: legDistance,
+                durationMillis: legDuration,
+              };
+            }
+
+            // Mark any stops beyond the 27-stop API cap as unavailable cleanly
+            for (let i = cappedItems.length; i < group.items.length; i += 1) {
+              unavailableToStopIds[group.items[i].stop.id] = true;
+            }
+
+            const totalDistance =
+              typeof primaryRoute.distanceMeters === 'number'
+                ? primaryRoute.distanceMeters
+                : summedDistance;
+            const totalDuration =
+              typeof primaryRoute.durationMillis === 'number'
+                ? primaryRoute.durationMillis
+                : summedDuration;
+            if (typeof primaryRoute.durationMillis === 'number') {
+              hasDuration = true;
+            }
+
+            routeCacheRef.current[group.cacheKey] = {
+              day: group.day,
+              routes: [primaryRoute],
+              legsByToStopId,
+              unavailableToStopIds,
+              distanceMeters: totalDistance,
+              durationMillis: totalDuration,
+              hasDuration,
+              routedSegments: cappedItems.length - 1,
+              totalSegments,
+              unavailable: false,
+            };
+          } else {
+            // Whole-day route unavailable (e.g. an unroutable stop); try individual legs
+            const fallbackResult = await computePairwiseFallback(group);
+            if (!cancelled) {
+              routeCacheRef.current[group.cacheKey] = fallbackResult;
+            }
+          }
+        } catch (err) {
+          if (cancelled) return;
+          if (isQuotaError(err)) {
+            quotaBlockedRef.current = true;
+            window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
+            setRouteError(
+              'Unable to calculate routes right now due to Maps quota limits.',
+            );
+            break;
+          }
+
+          if (group.items.length > 2) {
+            try {
+              const fallbackResult = await computePairwiseFallback(group);
+              if (!cancelled) {
+                routeCacheRef.current[group.cacheKey] = fallbackResult;
+              }
+            } catch {
+              if (cancelled || quotaBlockedRef.current) break;
+            }
+          } else {
+            const unavailableToStopIds: Record<string, true> = {};
+            if (group.items[1]) {
+              unavailableToStopIds[group.items[1].stop.id] = true;
+            }
+            routeCacheRef.current[group.cacheKey] = {
+              day: group.day,
+              routes: [],
+              legsByToStopId: {},
+              unavailableToStopIds,
+              distanceMeters: 0,
+              durationMillis: 0,
+              hasDuration: false,
+              routedSegments: 0,
+              totalSegments,
+              unavailable: true,
+            };
+          }
+        }
+
+        if (!cancelled) {
+          setDayRoutesByKey({ ...routeCacheRef.current });
+        }
+      }
+
+      if (!cancelled) {
+        setRoutesLoading(false);
+      }
+    };
+
+    void runComputeRoutes();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [routesLib, resolvingProgress, dayRouteGroups]);
+
+  // Render route polylines on the map using Route.createPolylines()
+  useEffect(() => {
+    polylinesRef.current.forEach((p) => p.setMap(null));
+    polylinesRef.current = [];
+
+    if (!map) return;
+
+    const created: google.maps.Polyline[] = [];
+    const isSingleDay = selectedDay !== 'all';
+
+    for (const group of dayRouteGroups) {
+      const routeData =
+        dayRoutesByKey[group.cacheKey] ?? routeCacheRef.current[group.cacheKey];
+      if (!routeData || routeData.routes.length === 0) continue;
+
+      const dayColor = getDayColor(group.day);
+      for (const route of routeData.routes) {
+        const polylines = route.createPolylines({
+          polylineOptions: {
+            strokeColor: dayColor,
+            strokeOpacity: isSingleDay ? 0.9 : 0.75,
+            strokeWeight: isSingleDay ? 5 : 4,
+            geodesic: true,
+            clickable: false,
+            zIndex: isSingleDay ? 20 : 10,
+          },
+        });
+
+        for (const polyline of polylines) {
+          polyline.setMap(map);
+          created.push(polyline);
+        }
+      }
+    }
+
+    polylinesRef.current = created;
+
+    return () => {
+      created.forEach((p) => p.setMap(null));
+      if (polylinesRef.current === created) {
+        polylinesRef.current = [];
+      }
+    };
+  }, [map, selectedDay, dayRouteGroups, dayRoutesByKey]);
+
+  // Aggregate route summary & per-stop leg lookup across visible days
+  const routeSummary = useMemo(() => {
+    const legsByToStopId: Record<string, RouteLegMetric> = {};
+    const unavailableToStopIds: Record<string, true> = {};
+    let totalDistanceMeters = 0;
+    let totalDurationMillis = 0;
+    let hasDuration = false;
+    let routedSegments = 0;
+    let totalSegments = 0;
+    let computedGroupCount = 0;
+
+    for (const group of dayRouteGroups) {
+      totalSegments += group.items.length - 1;
+      const data =
+        dayRoutesByKey[group.cacheKey] ?? routeCacheRef.current[group.cacheKey];
+      if (!data) continue;
+
+      computedGroupCount += 1;
+      totalDistanceMeters += data.distanceMeters;
+      if (data.hasDuration) {
+        totalDurationMillis += data.durationMillis;
+        hasDuration = true;
+      }
+      routedSegments += data.routedSegments;
+      Object.assign(legsByToStopId, data.legsByToStopId);
+      Object.assign(unavailableToStopIds, data.unavailableToStopIds);
+    }
+
+    const allGroupsComputed =
+      dayRouteGroups.length > 0 && computedGroupCount === dayRouteGroups.length;
+
+    return {
+      hasRoutablePairs: dayRouteGroups.length > 0,
+      allGroupsComputed,
+      totalDistanceMeters,
+      totalDurationMillis,
+      hasDuration,
+      routedSegments,
+      totalSegments,
+      legsByToStopId,
+      unavailableToStopIds,
+    };
+  }, [dayRouteGroups, dayRoutesByKey]);
+
   // Trigger InfoWindow automatically on the first resolved attraction when a Day is clicked
   useEffect(() => {
     if (autoOpenDayTarget === null || selectedDay !== autoOpenDayTarget) return;
@@ -677,6 +1155,10 @@ function ItineraryMapContent({
                   zIndex={zIndex}
                   currentIndex={orderIndex >= 0 ? orderIndex : 0}
                   totalResolvedCount={resolvedStops.length}
+                  legFromPrev={routeSummary.legsByToStopId[stop.id]}
+                  routeUnavailableFromPrev={Boolean(
+                    routeSummary.unavailableToStopIds[stop.id],
+                  )}
                   onSelect={() => onSelectStop(stop.id)}
                   onSelectPrev={() => {
                     if (resolvedStops.length <= 1) return;
@@ -722,11 +1204,45 @@ function ItineraryMapContent({
               Fit All Pins
             </button>
           )}
+          {!resolvingProgress && routeSummary.hasRoutablePairs && routesLoading && (
+            <div className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full bg-white/95 backdrop-blur-sm border border-black/10 px-3.5 py-1.5 text-xs font-medium text-wandor-muted shadow-sm">
+              <RouteIcon className="w-3.5 h-3.5 text-wandor-prompt" />
+              Calculating route...
+            </div>
+          )}
+          {!resolvingProgress &&
+            !routesLoading &&
+            routeSummary.routedSegments > 0 && (
+              <div className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full bg-white/95 backdrop-blur-sm border border-black/10 px-3.5 py-1.5 text-xs font-medium text-wandor-text shadow-sm tabular-nums">
+                <RouteIcon className="w-3.5 h-3.5 text-wandor-prompt shrink-0" />
+                <span>
+                  {formatRouteDistance(routeSummary.totalDistanceMeters)}
+                </span>
+                {routeSummary.hasDuration && (
+                  <>
+                    <span className="text-wandor-muted">·</span>
+                    <Clock className="w-3 h-3 text-wandor-muted shrink-0" />
+                    <span>
+                      {formatRouteDuration(routeSummary.totalDurationMillis)}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+          {!resolvingProgress &&
+            !routesLoading &&
+            routeSummary.allGroupsComputed &&
+            routeSummary.routedSegments === 0 && (
+              <div className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full bg-white/95 backdrop-blur-sm border border-black/10 px-3.5 py-1.5 text-xs font-medium text-wandor-muted shadow-sm">
+                <RouteIcon className="w-3.5 h-3.5 text-wandor-muted shrink-0" />
+                Route unavailable between stops
+              </div>
+            )}
         </div>
 
-        {lookupError && (
+        {(lookupError || routeError) && (
           <div className="absolute bottom-3 left-3 right-3 rounded-xl bg-amber-50/95 border border-amber-200 px-3.5 py-2 text-xs text-amber-900 shadow-sm">
-            {lookupError}
+            {lookupError || routeError}
           </div>
         )}
       </div>
@@ -742,6 +1258,30 @@ function ItineraryMapContent({
           </span>
         </div>
 
+        {!resolvingProgress && routeSummary.hasRoutablePairs && (
+          <div className="px-4 py-2 border-b border-black/10 bg-black/[0.02] flex items-center justify-between gap-2 text-[11px] text-wandor-muted tabular-nums">
+            <span className="inline-flex items-center gap-1.5 font-medium text-wandor-text">
+              <RouteIcon className="w-3.5 h-3.5 text-wandor-prompt shrink-0" />
+              {routesLoading
+                ? 'Calculating driving route...'
+                : routeSummary.routedSegments > 0
+                  ? `${formatRouteDistance(routeSummary.totalDistanceMeters)}${
+                      routeSummary.hasDuration
+                        ? ` · ${formatRouteDuration(routeSummary.totalDurationMillis)}`
+                        : ''
+                    }`
+                  : 'Driving route unavailable'}
+            </span>
+            {!routesLoading &&
+              routeSummary.routedSegments > 0 &&
+              routeSummary.routedSegments < routeSummary.totalSegments && (
+                <span>
+                  {routeSummary.routedSegments}/{routeSummary.totalSegments} legs
+                </span>
+              )}
+          </div>
+        )}
+
         <div className="overflow-y-auto divide-y divide-black/5 flex-1">
           {visibleStops.length === 0 ? (
             <div className="p-6 text-center text-xs text-wandor-muted">
@@ -754,6 +1294,10 @@ function ItineraryMapContent({
                 resolvedByQuery[key] ?? cacheRef.current[key] ?? undefined;
               const isSelected = selectedStopId === stop.id;
               const isUnresolved = resolved === null;
+              const legFromPrev = routeSummary.legsByToStopId[stop.id];
+              const legUnavailable = Boolean(
+                routeSummary.unavailableToStopIds[stop.id],
+              );
 
               return (
                 <button
@@ -811,6 +1355,19 @@ function ItineraryMapContent({
                           ? 'Location not found on map'
                           : stop.activity}
                     </p>
+                    {legFromPrev && (
+                      <p className="text-[11px] font-medium text-wandor-prompt tabular-nums pt-0.5">
+                        +{formatRouteDistance(legFromPrev.distanceMeters)}
+                        {formatRouteDuration(legFromPrev.durationMillis)
+                          ? ` · ${formatRouteDuration(legFromPrev.durationMillis)}`
+                          : ''}
+                      </p>
+                    )}
+                    {!legFromPrev && legUnavailable && (
+                      <p className="text-[11px] text-wandor-muted/80 italic pt-0.5">
+                        Route segment unavailable
+                      </p>
+                    )}
                   </div>
                 </button>
               );
@@ -918,7 +1475,7 @@ export default function ItineraryMap({
       ) : (
         <APIProvider
           apiKey={mapsApiKey}
-          libraries={['places', 'marker', 'core']}
+          libraries={['places', 'marker', 'core', 'routes']}
         >
           <ItineraryMapContent
             plan={plan}

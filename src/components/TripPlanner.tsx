@@ -396,6 +396,19 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
 
       const input = buildCurrentInput();
       let token = (await getIdToken()) ?? (await activeUser.getIdToken());
+      if (!token) {
+        token = await activeUser.getIdToken(true);
+      }
+      if (!token) {
+        setErrorState({
+          category: 'auth',
+          message:
+            'Unable to verify your Google sign-in token. Please sign in again and retry.',
+          retryAction: 'generate',
+        });
+        return;
+      }
+
       let result: Awaited<ReturnType<typeof generateFullTripPlan>>;
 
       try {
@@ -431,13 +444,21 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
       const isAuthFailure =
         err instanceof AIClientError &&
         (err.status === 401 || err.code.startsWith('AUTH_'));
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Unable to generate itinerary right now. Please try again.';
+
+      console.error('[SAFAR Planner] Itinerary generation failed:', {
+        category: isAuthFailure ? 'auth' : 'ai',
+        code: err instanceof AIClientError ? err.code : 'UNKNOWN',
+        status: err instanceof AIClientError ? err.status : 0,
+        message,
+      });
 
       setErrorState({
         category: isAuthFailure ? 'auth' : 'ai',
-        message:
-          err instanceof Error
-            ? err.message
-            : 'Unable to generate itinerary right now. Please try again.',
+        message,
         retryAction: 'generate',
       });
     } finally {

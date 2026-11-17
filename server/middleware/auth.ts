@@ -51,8 +51,23 @@ export async function requireAuth(
     return;
   }
 
+  let adminApp: ReturnType<typeof getFirebaseAdminApp>;
   try {
-    const adminApp = getFirebaseAdminApp();
+    adminApp = getFirebaseAdminApp();
+  } catch (configError) {
+    console.error(
+      '[Auth] Firebase Admin configuration error:',
+      configError instanceof Error ? configError.message : 'Unknown error',
+    );
+    res.status(500).json({
+      error:
+        'Firebase server authentication is not configured (missing projectId).',
+      code: 'AUTH_NOT_CONFIGURED',
+    });
+    return;
+  }
+
+  try {
     const decoded = await getAuth(adminApp).verifyIdToken(token);
 
     req.user = {
@@ -65,7 +80,7 @@ export async function requireAuth(
     next();
   } catch (error) {
     console.error(
-      'Firebase token verification failed:',
+      '[Auth] Firebase token verification failed:',
       error instanceof Error ? error.message : 'Unknown error',
     );
     res.status(401).json({

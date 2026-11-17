@@ -25,7 +25,8 @@ healthRouter.get('/', (_req, res) => {
 
   res.json({
     ok: true,
-    service: 'wandor-api',
+    service: 'safar-api',
+    platform: process.env.VERCEL ? 'vercel' : 'node',
     firebaseConfigured: Boolean(serverEnv.firebaseProjectId),
     mapsConfigured,
     aiProvider: openAiConfigured ? 'openai' : 'unconfigured',

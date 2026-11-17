@@ -134,30 +134,51 @@ export async function generateFullTripPlan(
   responseId: string;
   model: string;
 }> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), PLAN_CLIENT_TIMEOUT_MS);
+  const cleanToken = idToken.trim();
+  if (!cleanToken) {
+    throw new AIClientError(
+      401,
+      'AUTH_MISSING_TOKEN',
+      'Authentication required. Please sign in with Google to generate your itinerary.',
+    );
+  }
 
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, PLAN_CLIENT_TIMEOUT_MS);
+
+  const endpoint = '/api/trips/plan';
   try {
-    const response = await fetch('/api/trips/plan', {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${idToken}`,
+        Authorization: `Bearer ${cleanToken}`,
       },
       signal: controller.signal,
       body: JSON.stringify(input),
     });
 
-    const { data, isHtmlProxy } = await parseApiJsonSafely<{
-      plan?: StructuredTripPlan;
-      responseId?: string;
-      model?: string;
-      error?: string;
-      code?: string;
-      retryAfterSeconds?: number;
-    }>(response);
+    const { data, isHtmlProxy, contentType, rawSnippet } =
+      await parseApiJsonSafely<{
+        plan?: StructuredTripPlan;
+        responseId?: string;
+        model?: string;
+        error?: string;
+        code?: string;
+        retryAfterSeconds?: number;
+      }>(response);
 
     if (isHtmlProxy) {
+      console.error('[SAFAR Trips] Unexpected HTML gateway response', {
+        endpoint,
+        status: response.status,
+        contentType,
+        detail: rawSnippet,
+      });
       throw new AIClientError(
         503,
         'PROXY_UNAVAILABLE',
@@ -168,11 +189,40 @@ export async function generateFullTripPlan(
     const payload = data ?? {};
 
     if (!response.ok || !payload.plan) {
+      const code =
+        payload.code ||
+        (response.status === 404
+          ? 'TRIP_API_NOT_FOUND'
+          : response.status === 502 ||
+              response.status === 503 ||
+              response.status === 504
+            ? 'TRIP_GATEWAY_UNAVAILABLE'
+            : response.status === 401
+              ? 'AUTH_INVALID_TOKEN'
+              : 'TRIP_PLAN_FAILED');
+
+      console.error('[SAFAR Trips] Itinerary API error', {
+        endpoint,
+        status: response.status,
+        code,
+        contentType: contentType || 'unknown',
+        detail: payload.error || rawSnippet || 'Missing itinerary plan payload',
+      });
+
+      const message =
+        response.status === 404
+          ? 'Itinerary generation API endpoint is unavailable (HTTP 404). Please ensure backend API routes are deployed and try again.'
+          : response.status === 502 ||
+              response.status === 503 ||
+              response.status === 504
+            ? 'The itinerary generation service timed out or is temporarily unavailable. Please retry in a moment.'
+            : payload.error ||
+              'Unable to generate itinerary right now. Please try again.';
+
       throw new AIClientError(
         response.status,
-        payload.code || 'TRIP_PLAN_FAILED',
-        payload.error ||
-          'Unable to generate itinerary right now. Please try again.',
+        code,
+        message,
         payload.retryAfterSeconds,
       );
     }
@@ -186,20 +236,26 @@ export async function generateFullTripPlan(
     if (error instanceof AIClientError) {
       throw error;
     }
-    if (error instanceof Error && error.name === 'AbortError') {
+    if (timedOut || (error instanceof Error && error.name === 'AbortError')) {
+      console.error('[SAFAR Trips] Itinerary request timed out', {
+        endpoint,
+        timeoutMs: PLAN_CLIENT_TIMEOUT_MS,
+      });
       throw new AIClientError(
         408,
         'CLIENT_TIMEOUT',
         'Itinerary generation timed out while waiting for the AI planner. Please retry.',
       );
     }
-    throw new AIClientError(
-      0,
-      'NETWORK_ERROR',
+    const message =
       error instanceof Error
         ? error.message
-        : 'Network error while generating your itinerary.',
-    );
+        : 'Network error while generating your itinerary.';
+    console.error('[SAFAR Trips] Itinerary network failure', {
+      endpoint,
+      message,
+    });
+    throw new AIClientError(0, 'NETWORK_ERROR', `${message} Please retry.`);
   } finally {
     clearTimeout(timeout);
   }

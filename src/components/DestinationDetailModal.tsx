@@ -65,14 +65,18 @@ export default function DestinationDetailModal({
         }
       } catch (err) {
         if (signal.aborted) return;
+        const message =
+          err instanceof Error
+            ? err.message
+            : 'Unable to load destination gallery. Please retry.';
+        console.error('[SAFAR GalleryModal] Failed to load destination photos:', {
+          query: target.query,
+          message,
+        });
         if (target.initialPhotos && target.initialPhotos.length > 0) {
           setPhotos(target.initialPhotos);
         } else {
-          setErrorMsg(
-            err instanceof Error
-              ? err.message
-              : 'Unable to load destination gallery.',
-          );
+          setErrorMsg(message);
         }
       } finally {
         if (!signal.aborted) {

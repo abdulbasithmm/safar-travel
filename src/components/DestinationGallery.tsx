@@ -62,11 +62,14 @@ export default function DestinationGallery({
       })
       .catch((err) => {
         if (controller.signal.aborted) return;
-        setFeaturedError(
+        const message =
           err instanceof Error
             ? err.message
-            : 'Unable to load destination photography.',
-        );
+            : 'Unable to load destination photography. Please retry.';
+        console.error('[SAFAR Gallery] Featured destinations fetch failed:', {
+          message,
+        });
+        setFeaturedError(message);
       })
       .finally(() => {
         if (!controller.signal.aborted) {
@@ -105,11 +108,16 @@ export default function DestinationGallery({
         }
       } catch (err) {
         if (signal?.aborted) return;
-        setSearchError(
+        const message =
           err instanceof Error
             ? err.message
-            : 'Unable to fetch photographs for this destination.',
-        );
+            : 'Unable to fetch photographs for this destination. Please retry.';
+        console.error('[SAFAR Gallery] Destination photo search failed:', {
+          query: cleaned,
+          category,
+          message,
+        });
+        setSearchError(message);
       } finally {
         if (!signal?.aborted) {
           setSearchLoading(false);
