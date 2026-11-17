@@ -4,18 +4,8 @@ import path from 'path';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
-  const mapsDefine =
-    process.env.GOOGLE_MAPS_API_KEY && !process.env.VITE_GOOGLE_MAPS_API_KEY
-      ? {
-          'import.meta.env.VITE_GOOGLE_MAPS_API_KEY': JSON.stringify(
-            process.env.GOOGLE_MAPS_API_KEY,
-          ),
-        }
-      : undefined;
-
   return {
     plugins: [react(), tailwindcss()],
-    ...(mapsDefine ? {define: mapsDefine} : {}),
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src'),

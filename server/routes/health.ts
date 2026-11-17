@@ -6,10 +6,6 @@ export const healthRouter = Router();
 
 healthRouter.get('/', (_req, res) => {
   const openAiConfigured = isOpenAIConfigured();
-  const mapsConfigured = Boolean(
-    process.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ||
-      process.env.GOOGLE_MAPS_API_KEY?.trim(),
-  );
 
   const photoProviders = {
     unsplash: Boolean(serverEnv.unsplashAccessKey),
@@ -28,7 +24,8 @@ healthRouter.get('/', (_req, res) => {
     service: 'safar-api',
     platform: process.env.VERCEL ? 'vercel' : 'node',
     firebaseConfigured: Boolean(serverEnv.firebaseProjectId),
-    mapsConfigured,
+    mapsConfigured: true,
+    mapProvider: 'openstreetmap',
     aiProvider: openAiConfigured ? 'openai' : 'unconfigured',
     openAiConfigured,
     openAiModel: serverEnv.openAiModel,

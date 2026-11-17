@@ -1,25 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import {
-  APIProvider,
-  APILoadingStatus,
-  AdvancedMarker,
-  CollisionBehavior,
-  InfoWindow,
-  Map as GoogleMap,
-  useAdvancedMarkerRef,
-  useApiLoadingStatus,
+  MapContainer,
+  Marker,
+  Polyline,
+  Popup,
+  TileLayer,
   useMap,
-  useMapsLibrary,
-} from '@vis.gl/react-google-maps';
+  useMapEvents,
+} from 'react-leaflet';
 import {
   ChevronLeft,
   ChevronRight,
   Clock,
   Compass,
   LocateFixed,
-  MapPin,
   Navigation,
   Route as RouteIcon,
+  X,
 } from 'lucide-react';
 import type { StructuredTripPlan } from '@/types/trip';
 
@@ -40,16 +39,21 @@ export interface DayMapTrigger {
   nonce: number;
 }
 
+interface LatLngPoint {
+  lat: number;
+  lng: number;
+}
+
 interface ResolvedPlaceData {
   placeId: string;
   displayName: string;
   formattedAddress: string;
-  position: google.maps.LatLngLiteral;
+  position: LatLngPoint;
 }
 
 interface DestinationAnchor {
-  position: google.maps.LatLngLiteral;
-  viewport: google.maps.LatLngBounds | null;
+  position: LatLngPoint;
+  bounds: [[number, number], [number, number]] | null;
 }
 
 interface RouteLegMetric {
@@ -61,7 +65,7 @@ interface RouteLegMetric {
 
 interface DayRouteData {
   day: number;
-  routes: google.maps.routes.Route[];
+  polylines: LatLngPoint[][];
   legsByToStopId: Record<string, RouteLegMetric>;
   unavailableToStopIds: Record<string, true>;
   distanceMeters: number;
@@ -70,6 +74,54 @@ interface DayRouteData {
   routedSegments: number;
   totalSegments: number;
   unavailable: boolean;
+}
+
+interface ItineraryMapProps {
+  plan: StructuredTripPlan;
+  selectedDay: number | 'all';
+  onSelectDay: (day: number | 'all') => void;
+  selectedStopId: string | null;
+  onSelectStop: (stopId: string | null) => void;
+  dayTrigger?: DayMapTrigger | null;
+  onJumpToScheduleSlot?: (day: number, stopId: string) => void;
+}
+
+const MAX_AUTO_RESOLVE_STOPS = 14;
+const DEFAULT_MAP_CENTER: [number, number] = [10.0889, 77.0595];
+const OSM_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+const OSM_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors';
+
+const DAY_ACCENT_COLORS = [
+  '#0a0a0a',
+  '#905831',
+  '#1f4e5f',
+  '#3f5e3a',
+  '#6b3f69',
+  '#7c4a21',
+  '#2d3a54',
+];
+
+function getDayColor(day: number): string {
+  const index = Math.max(0, day - 1) % DAY_ACCENT_COLORS.length;
+  return DAY_ACCENT_COLORS[index];
+}
+
+export function buildScheduleStopId(dayNumber: number, slotIndex: number): string {
+  return `day-${dayNumber}-slot-${slotIndex}`;
+}
+
+function normalizeQueryKey(destination: string, query: string): string {
+  return `${destination.trim().toLowerCase()}::${query.trim().toLowerCase()}`;
+}
+
+function escapeHtml(raw: string): string {
+  return raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function formatRouteDistance(meters: number): string {
@@ -102,76 +154,6 @@ function formatRouteDuration(millis: number | null | undefined): string {
   return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
 }
 
-interface ItineraryMapProps {
-  plan: StructuredTripPlan;
-  selectedDay: number | 'all';
-  onSelectDay: (day: number | 'all') => void;
-  selectedStopId: string | null;
-  onSelectStop: (stopId: string | null) => void;
-  dayTrigger?: DayMapTrigger | null;
-  onJumpToScheduleSlot?: (day: number, stopId: string) => void;
-}
-
-const MAX_AUTO_RESOLVE_STOPS = 14;
-
-const DAY_ACCENT_COLORS = [
-  '#0a0a0a',
-  '#905831',
-  '#1f4e5f',
-  '#3f5e3a',
-  '#6b3f69',
-  '#7c4a21',
-  '#2d3a54',
-];
-
-function getDayColor(day: number): string {
-  const index = Math.max(0, day - 1) % DAY_ACCENT_COLORS.length;
-  return DAY_ACCENT_COLORS[index];
-}
-
-export function buildScheduleStopId(dayNumber: number, slotIndex: number): string {
-  return `day-${dayNumber}-slot-${slotIndex}`;
-}
-
-function normalizeQueryKey(destination: string, query: string): string {
-  return `${destination.trim().toLowerCase()}::${query.trim().toLowerCase()}`;
-}
-
-function toLatLngLiteral(
-  loc: google.maps.LatLng | google.maps.LatLngLiteral | null | undefined,
-): google.maps.LatLngLiteral | null {
-  if (!loc) return null;
-  if (typeof (loc as google.maps.LatLng).lat === 'function') {
-    const latLng = loc as google.maps.LatLng;
-    return { lat: latLng.lat(), lng: latLng.lng() };
-  }
-  const literal = loc as google.maps.LatLngLiteral;
-  if (typeof literal.lat === 'number' && typeof literal.lng === 'number') {
-    return { lat: literal.lat, lng: literal.lng };
-  }
-  return null;
-}
-
-function isQuotaError(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const record = err as Record<string, unknown>;
-  const status = record.status ?? record.code;
-  if (
-    status === 429 ||
-    status === 'RESOURCE_EXHAUSTED' ||
-    status === 'OVER_QUERY_LIMIT'
-  ) {
-    return true;
-  }
-  const msg = String(record.message ?? err).toUpperCase();
-  return (
-    msg.includes('RESOURCE_EXHAUSTED') ||
-    msg.includes('OVER_QUERY_LIMIT') ||
-    msg.includes('QUOTA') ||
-    msg.includes('429')
-  );
-}
-
 function extractItineraryStops(plan: StructuredTripPlan): ItineraryMapStop[] {
   const stops: ItineraryMapStop[] = [];
   let runningOrder = 0;
@@ -201,207 +183,396 @@ function extractItineraryStops(plan: StructuredTripPlan): ItineraryMapStop[] {
   return stops;
 }
 
-interface ItineraryMarkerItemProps {
-  stop: ItineraryMapStop;
-  resolved: ResolvedPlaceData;
-  displayOrder: number;
-  showDayPrefix: boolean;
-  isSelected: boolean;
-  isHovered: boolean;
-  zIndex: number;
-  currentIndex: number;
-  totalResolvedCount: number;
-  legFromPrev?: RouteLegMetric;
-  routeUnavailableFromPrev?: boolean;
-  onSelect: () => void;
-  onSelectPrev?: () => void;
-  onSelectNext?: () => void;
-  onCloseInfo: () => void;
-  onHover: (hovered: boolean) => void;
-  onJumpToSchedule?: () => void;
+interface NominatimSearchItem {
+  place_id?: number;
+  osm_id?: number;
+  lat?: string;
+  lon?: string;
+  name?: string;
+  display_name?: string;
+  boundingbox?: [string, string, string, string];
 }
 
-function ItineraryMarkerItem({
-  stop,
-  resolved,
-  displayOrder,
-  showDayPrefix,
-  isSelected,
-  isHovered,
-  zIndex,
-  currentIndex,
-  totalResolvedCount,
-  legFromPrev,
-  routeUnavailableFromPrev,
-  onSelect,
-  onSelectPrev,
-  onSelectNext,
-  onCloseInfo,
-  onHover,
-  onJumpToSchedule,
-}: ItineraryMarkerItemProps) {
-  const [markerRef, marker] = useAdvancedMarkerRef();
-  const dayColor = getDayColor(stop.day);
-  const badgeText = showDayPrefix ? `D${stop.day}·${displayOrder}` : String(displayOrder);
-  const labelText = stop.locationName || resolved.displayName || stop.activity;
+interface PhotonFeatureCollection {
+  features?: Array<{
+    geometry?: {
+      coordinates?: [number, number];
+    };
+    properties?: {
+      osm_id?: number;
+      name?: string;
+      street?: string;
+      city?: string;
+      state?: string;
+      country?: string;
+    };
+  }>;
+}
 
-  return (
-    <>
-      <AdvancedMarker
-        ref={markerRef}
-        position={resolved.position}
-        title={`${labelText} (Day ${stop.day})`}
-        anchorLeft="-50%"
-        anchorTop="-100%"
-        zIndex={zIndex}
-        collisionBehavior={CollisionBehavior.OPTIONAL_AND_HIDES_LOWER_PRIORITY}
-        onClick={onSelect}
-        onMouseEnter={() => onHover(true)}
-        onMouseLeave={() => onHover(false)}
-      >
-        <div
-          className={`flex flex-col items-center select-none cursor-pointer transition-transform duration-150 ${
-            isSelected ? 'scale-105' : isHovered ? 'scale-[1.03]' : ''
-          }`}
-        >
-          <div
-            className={`flex items-center gap-1.5 rounded-full pl-1 pr-2.5 py-1 shadow-md border transition-colors ${
-              isSelected
-                ? 'bg-wandor-prompt text-white border-[#5c361c]'
-                : isHovered
-                  ? 'bg-wandor-dark text-white border-black'
-                  : 'bg-white/95 text-wandor-text border-black/15'
-            }`}
-          >
-            <span
-              className="inline-flex items-center justify-center rounded-full px-1.5 h-5 min-w-[20px] text-[10px] font-semibold tracking-[0.02em] text-white tabular-nums shrink-0"
-              style={{
-                backgroundColor: isSelected ? '#0a0a0a' : dayColor,
-              }}
-            >
-              {badgeText}
-            </span>
-            <span className="max-w-[132px] truncate text-[11px] font-medium leading-none">
-              {labelText}
-            </span>
-          </div>
-          <div
-            className={`w-0.5 h-2 ${
-              isSelected ? 'bg-wandor-prompt' : 'bg-wandor-dark'
-            }`}
-          />
-          <div
-            className={`w-2.5 h-2.5 rounded-full border-2 border-white shadow-sm ${
-              isSelected ? 'bg-wandor-prompt' : 'bg-wandor-dark'
-            }`}
-          />
-        </div>
-      </AdvancedMarker>
+interface GeocodeOutcome {
+  place: ResolvedPlaceData | null;
+  bounds: [[number, number], [number, number]] | null;
+  rateLimited: boolean;
+}
 
-      {isSelected && marker && (
-        <InfoWindow
-          anchor={marker}
-          pixelOffset={[0, -44]}
-          maxWidth={300}
-          onCloseClick={onCloseInfo}
-        >
-          <div className="font-sans text-wandor-text space-y-2 pr-1">
-            <div className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-[0.04em] text-wandor-prompt">
-              <span>
-                Day {stop.day}
-                {stop.time ? ` · ${stop.time}` : ''}
-              </span>
-              {totalResolvedCount > 1 && (
-                <span className="text-wandor-muted font-medium tabular-nums">
-                  {currentIndex + 1}/{totalResolvedCount}
-                </span>
-              )}
-            </div>
+async function fetchNominatimPlace(
+  query: string,
+  language: 'en' | 'ml',
+  anchor: DestinationAnchor | null,
+  signal: AbortSignal,
+): Promise<GeocodeOutcome> {
+  const params = new URLSearchParams({
+    q: query,
+    format: 'jsonv2',
+    limit: '1',
+    addressdetails: '1',
+  });
+  if (anchor?.bounds) {
+    const [[south, west], [north, east]] = anchor.bounds;
+    params.set('viewbox', `${west},${north},${east},${south}`);
+    params.set('bounded', '0');
+  }
 
-            <div>
-              <p className="text-sm font-semibold text-wandor-text leading-snug">
-                {resolved.displayName || stop.locationName}
-              </p>
-              {stop.activity && stop.activity !== resolved.displayName && (
-                <p className="text-xs text-wandor-text/80 leading-snug mt-0.5">
-                  {stop.activity}
-                </p>
-              )}
-            </div>
-
-            {resolved.formattedAddress && (
-              <p className="text-[11px] text-wandor-muted leading-snug">
-                {resolved.formattedAddress}
-              </p>
-            )}
-
-            {(stop.visitingHours || stop.travelTimeFromPrev) && (
-              <p className="text-[11px] text-wandor-muted">
-                {stop.visitingHours ? `Hours: ${stop.visitingHours}` : ''}
-                {stop.visitingHours && stop.travelTimeFromPrev ? ' · ' : ''}
-                {stop.travelTimeFromPrev}
-              </p>
-            )}
-
-            {legFromPrev && (
-              <div className="inline-flex items-center gap-1.5 rounded-lg bg-black/[0.04] px-2.5 py-1 text-[11px] font-medium text-wandor-text tabular-nums">
-                <RouteIcon className="w-3 h-3 text-wandor-prompt shrink-0" />
-                <span>
-                  Drive from previous: {formatRouteDistance(legFromPrev.distanceMeters)}
-                  {formatRouteDuration(legFromPrev.durationMillis)
-                    ? ` · ${formatRouteDuration(legFromPrev.durationMillis)}`
-                    : ''}
-                </span>
-              </div>
-            )}
-
-            {!legFromPrev && routeUnavailableFromPrev && (
-              <p className="text-[11px] text-wandor-muted italic">
-                Driving route unavailable from previous stop
-              </p>
-            )}
-
-            {(onJumpToSchedule || totalResolvedCount > 1) && (
-              <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-black/10">
-                {onJumpToSchedule ? (
-                  <button
-                    type="button"
-                    onClick={onJumpToSchedule}
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.04em] text-wandor-prompt hover:underline cursor-pointer"
-                  >
-                    View in schedule
-                  </button>
-                ) : (
-                  <span />
-                )}
-
-                {totalResolvedCount > 1 && (
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={onSelectPrev}
-                      aria-label="Previous stop"
-                      className="cursor-pointer inline-flex items-center justify-center w-6 h-6 rounded-full border border-black/15 text-wandor-text hover:bg-black/5"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onSelectNext}
-                      aria-label="Next stop"
-                      className="cursor-pointer inline-flex items-center justify-center w-6 h-6 rounded-full border border-black/15 text-wandor-text hover:bg-black/5"
-                    >
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </InfoWindow>
-      )}
-    </>
+  const response = await fetch(
+    `https://nominatim.openstreetmap.org/search?${params.toString()}`,
+    {
+      method: 'GET',
+      headers: {
+        'Accept-Language': language === 'ml' ? 'ml,en' : 'en',
+      },
+      signal,
+    },
   );
+
+  if (response.status === 429) {
+    return { place: null, bounds: null, rateLimited: true };
+  }
+  if (!response.ok) {
+    return { place: null, bounds: null, rateLimited: false };
+  }
+
+  const items = (await response.json()) as NominatimSearchItem[];
+  const first = Array.isArray(items) ? items[0] : undefined;
+  if (!first) {
+    return { place: null, bounds: null, rateLimited: false };
+  }
+
+  const lat = Number(first.lat);
+  const lng = Number(first.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return { place: null, bounds: null, rateLimited: false };
+  }
+
+  let bounds: [[number, number], [number, number]] | null = null;
+  if (Array.isArray(first.boundingbox) && first.boundingbox.length === 4) {
+    const south = Number(first.boundingbox[0]);
+    const north = Number(first.boundingbox[1]);
+    const west = Number(first.boundingbox[2]);
+    const east = Number(first.boundingbox[3]);
+    if (
+      Number.isFinite(south) &&
+      Number.isFinite(north) &&
+      Number.isFinite(west) &&
+      Number.isFinite(east)
+    ) {
+      bounds = [
+        [south, west],
+        [north, east],
+      ];
+    }
+  }
+
+  const displayParts = (first.display_name || '')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const displayName = (first.name || displayParts[0] || query).trim();
+
+  return {
+    place: {
+      placeId: String(first.place_id ?? first.osm_id ?? `${lat},${lng}`),
+      displayName,
+      formattedAddress: first.display_name || '',
+      position: { lat, lng },
+    },
+    bounds,
+    rateLimited: false,
+  };
+}
+
+async function fetchPhotonPlace(
+  query: string,
+  anchor: DestinationAnchor | null,
+  signal: AbortSignal,
+): Promise<GeocodeOutcome> {
+  const params = new URLSearchParams({
+    q: query,
+    limit: '1',
+    lang: 'en',
+  });
+  if (anchor?.position) {
+    params.set('lat', String(anchor.position.lat));
+    params.set('lon', String(anchor.position.lng));
+  }
+
+  const response = await fetch(
+    `https://photon.komoot.io/api/?${params.toString()}`,
+    {
+      method: 'GET',
+      signal,
+    },
+  );
+
+  if (response.status === 429) {
+    return { place: null, bounds: null, rateLimited: true };
+  }
+  if (!response.ok) {
+    return { place: null, bounds: null, rateLimited: false };
+  }
+
+  const payload = (await response.json()) as PhotonFeatureCollection;
+  const feature = payload.features?.[0];
+  const coords = feature?.geometry?.coordinates;
+  if (!feature || !coords || coords.length < 2) {
+    return { place: null, bounds: null, rateLimited: false };
+  }
+
+  const [lng, lat] = coords;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return { place: null, bounds: null, rateLimited: false };
+  }
+
+  const props = feature.properties ?? {};
+  const addressParts = [
+    props.name,
+    props.street,
+    props.city,
+    props.state,
+    props.country,
+  ]
+    .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+    .filter((v, idx, arr) => arr.indexOf(v) === idx);
+
+  return {
+    place: {
+      placeId: String(props.osm_id ?? `${lat},${lng}`),
+      displayName: (props.name || addressParts[0] || query).trim(),
+      formattedAddress: addressParts.join(', '),
+      position: { lat, lng },
+    },
+    bounds: null,
+    rateLimited: false,
+  };
+}
+
+async function geocodeWithOsm(
+  query: string,
+  language: 'en' | 'ml',
+  anchor: DestinationAnchor | null,
+  signal: AbortSignal,
+): Promise<GeocodeOutcome> {
+  try {
+    const nominatim = await fetchNominatimPlace(query, language, anchor, signal);
+    if (nominatim.place) {
+      return nominatim;
+    }
+    const photon = await fetchPhotonPlace(query, anchor, signal);
+    if (photon.place) {
+      return photon;
+    }
+    return {
+      place: null,
+      bounds: null,
+      rateLimited: nominatim.rateLimited || photon.rateLimited,
+    };
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw err;
+    }
+    try {
+      return await fetchPhotonPlace(query, anchor, signal);
+    } catch {
+      return { place: null, bounds: null, rateLimited: false };
+    }
+  }
+}
+
+interface OsrmRouteResponse {
+  code?: string;
+  routes?: Array<{
+    distance?: number;
+    duration?: number;
+    geometry?: {
+      coordinates?: Array<[number, number]>;
+    };
+    legs?: Array<{
+      distance?: number;
+      duration?: number;
+    }>;
+  }>;
+}
+
+async function fetchOsrmDrivingRoute(
+  points: LatLngPoint[],
+  signal: AbortSignal,
+): Promise<OsrmRouteResponse | null> {
+  if (points.length < 2) return null;
+  const coords = points
+    .map((p) => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`)
+    .join(';');
+  const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
+
+  const response = await fetch(url, { method: 'GET', signal });
+  if (!response.ok) {
+    return null;
+  }
+  const data = (await response.json()) as OsrmRouteResponse;
+  if (data.code !== 'Ok' || !data.routes || data.routes.length === 0) {
+    return null;
+  }
+  return data;
+}
+
+function createStopMarkerIcon(params: {
+  badgeText: string;
+  labelText: string;
+  dayColor: string;
+  isSelected: boolean;
+  isHovered: boolean;
+}): L.DivIcon {
+  const { badgeText, labelText, dayColor, isSelected, isHovered } = params;
+  const safeBadge = escapeHtml(badgeText);
+  const safeLabel = escapeHtml(labelText);
+
+  const pillBg = isSelected ? '#905831' : isHovered ? '#0a0a0a' : 'rgba(255,255,255,0.96)';
+  const pillText = isSelected || isHovered ? '#ffffff' : '#0a0a0a';
+  const pillBorder = isSelected
+    ? '#5c361c'
+    : isHovered
+      ? '#0a0a0a'
+      : 'rgba(10,10,10,0.16)';
+  const badgeBg = isSelected ? '#0a0a0a' : dayColor;
+  const stemColor = isSelected ? '#905831' : '#0a0a0a';
+  const scaleTransform = isSelected
+    ? 'scale(1.06)'
+    : isHovered
+      ? 'scale(1.03)'
+      : 'scale(1)';
+
+  const html = `
+    <div style="width: 168px; height: 46px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; transform: ${scaleTransform}; transform-origin: bottom center; user-select: none; cursor: pointer; transition: transform 150ms ease;">
+      <div style="display: inline-flex; align-items: center; gap: 6px; max-width: 168px; border-radius: 9999px; padding: 4px 10px 4px 4px; background: ${pillBg}; color: ${pillText}; border: 1px solid ${pillBorder}; box-shadow: 0 4px 12px rgba(10,10,10,0.16); white-space: nowrap; font-family: 'Geist', sans-serif;">
+        <span style="display: inline-flex; align-items: center; justify-content: center; border-radius: 9999px; padding: 0 6px; height: 20px; min-width: 20px; background: ${badgeBg}; color: #ffffff; font-size: 10px; font-weight: 600; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; flex-shrink: 0;">${safeBadge}</span>
+        <span style="max-width: 112px; overflow: hidden; text-overflow: ellipsis; font-size: 11px; font-weight: 500; line-height: 1;">${safeLabel}</span>
+      </div>
+      <div style="width: 2px; height: 6px; background: ${stemColor};"></div>
+      <div style="width: 10px; height: 10px; border-radius: 9999px; background: ${stemColor}; border: 2px solid #ffffff; box-shadow: 0 1px 4px rgba(10,10,10,0.25);"></div>
+    </div>
+  `;
+
+  return L.divIcon({
+    className: 'safar-leaflet-marker',
+    html,
+    iconSize: [168, 46],
+    iconAnchor: [84, 46],
+  });
+}
+
+interface LeafletMapControllerProps {
+  mapRef: React.MutableRefObject<L.Map | null>;
+  anchor: DestinationAnchor | null;
+  resolvedStops: Array<{
+    stop: ItineraryMapStop & { displayOrder: number };
+    resolved: ResolvedPlaceData;
+  }>;
+  selectedDay: number | 'all';
+  selectedStopId: string | null;
+  destination: string;
+  onMapClick: () => void;
+}
+
+function LeafletMapController({
+  mapRef,
+  anchor,
+  resolvedStops,
+  selectedDay,
+  selectedStopId,
+  destination,
+  onMapClick,
+}: LeafletMapControllerProps) {
+  const map = useMap();
+
+  useEffect(() => {
+    mapRef.current = map;
+    return () => {
+      if (mapRef.current === map) {
+        mapRef.current = null;
+      }
+    };
+  }, [map, mapRef]);
+
+  useMapEvents({
+    click: (e) => {
+      const target = e.originalEvent?.target;
+      if (
+        target instanceof Element &&
+        target.closest('.leaflet-popup, .leaflet-marker-icon, .leaflet-control')
+      ) {
+        return;
+      }
+      onMapClick();
+    },
+  });
+
+  // Fit initial destination anchor while individual stops are still resolving
+  const lastAnchorDestRef = useRef<string>('');
+  useEffect(() => {
+    if (!anchor || resolvedStops.length > 0) return;
+    if (lastAnchorDestRef.current === destination) return;
+    lastAnchorDestRef.current = destination;
+
+    if (anchor.bounds) {
+      map.fitBounds(anchor.bounds, { padding: [36, 36], maxZoom: 13 });
+    } else {
+      map.setView([anchor.position.lat, anchor.position.lng], 11);
+    }
+  }, [map, anchor, resolvedStops.length, destination]);
+
+  // Fit bounds when day filter or destination changes and resolved markers settle
+  const lastFitSignatureRef = useRef<string>('');
+  useEffect(() => {
+    if (resolvedStops.length === 0) return;
+    const sig = `${destination}::${selectedDay}::${resolvedStops.length}`;
+    if (lastFitSignatureRef.current === sig) return;
+    lastFitSignatureRef.current = sig;
+
+    if (resolvedStops.length === 1) {
+      const pos = resolvedStops[0].resolved.position;
+      map.setView([pos.lat, pos.lng], 13, { animate: true });
+      return;
+    }
+
+    const bounds = L.latLngBounds(
+      resolvedStops.map((item) => [
+        item.resolved.position.lat,
+        item.resolved.position.lng,
+      ]),
+    );
+    map.fitBounds(bounds, { padding: [52, 52], maxZoom: 14 });
+  }, [map, destination, selectedDay, resolvedStops]);
+
+  // Pan to selected stop when selected externally (sidebar click, day trigger, prev/next)
+  useEffect(() => {
+    if (!selectedStopId) return;
+    const target = resolvedStops.find((item) => item.stop.id === selectedStopId);
+    if (target) {
+      map.panTo([target.resolved.position.lat, target.resolved.position.lng], {
+        animate: true,
+      });
+    }
+  }, [map, selectedStopId, resolvedStops]);
+
+  return null;
 }
 
 interface ItineraryMapContentProps {
@@ -425,16 +596,13 @@ function ItineraryMapContent({
   onClearAutoOpenDay,
   onJumpToScheduleSlot,
 }: ItineraryMapContentProps) {
-  const map = useMap();
-  const placesLib = useMapsLibrary('places');
-  const coreLib = useMapsLibrary('core');
-  const routesLib = useMapsLibrary('routes');
-  const loadingStatus = useApiLoadingStatus();
-
+  const mapInstanceRef = useRef<L.Map | null>(null);
   const [hoveredStopId, setHoveredStopId] = useState<string | null>(null);
   const [resolvedByQuery, setResolvedByQuery] = useState<
     Record<string, ResolvedPlaceData | null>
   >({});
+  const [destinationAnchor, setDestinationAnchor] =
+    useState<DestinationAnchor | null>(null);
   const [resolvingProgress, setResolvingProgress] = useState<{
     done: number;
     total: number;
@@ -444,13 +612,10 @@ function ItineraryMapContent({
     Record<string, DayRouteData>
   >({});
   const [routesLoading, setRoutesLoading] = useState(false);
-  const [routeError, setRouteError] = useState<string | null>(null);
 
   const cacheRef = useRef<Record<string, ResolvedPlaceData | null>>({});
   const destAnchorRef = useRef<Record<string, DestinationAnchor | null>>({});
   const routeCacheRef = useRef<Record<string, DayRouteData>>({});
-  const polylinesRef = useRef<google.maps.Polyline[]>([]);
-  const quotaBlockedRef = useRef(false);
 
   const visibleStops = useMemo(() => {
     const filtered =
@@ -480,59 +645,42 @@ function ItineraryMapContent({
     return unique;
   }, [visibleStops, plan.destination, selectedDay]);
 
-  // Resolve destination center and visible stops using Google Places API (New)
+  // Resolve destination center and visible stops using free OpenStreetMap Nominatim + Photon geocoding
   useEffect(() => {
-    if (!placesLib || quotaBlockedRef.current) return;
-
+    const controller = new AbortController();
     let cancelled = false;
     setLookupError(null);
 
     const destination = plan.destination.trim();
-    const language = plan.language === 'ml' ? 'ml' : 'en';
+    const language: 'en' | 'ml' = plan.language === 'ml' ? 'ml' : 'en';
 
     const resolveStops = async () => {
       let anchor = destAnchorRef.current[destination] ?? null;
 
       if (!anchor && destination) {
         try {
-          const { places } = await placesLib.Place.searchByText({
-            textQuery: destination,
-            fields: ['id', 'displayName', 'location', 'viewport'],
-            maxResultCount: 1,
+          const outcome = await geocodeWithOsm(
+            destination,
             language,
-            internalUsageAttributionIds: ['gmp_mcp_codeassist_v1_aistudio'],
-          });
-
+            null,
+            controller.signal,
+          );
           if (cancelled) return;
-
-          const first = places?.[0];
-          const pos = toLatLngLiteral(first?.location);
-          if (pos) {
+          if (outcome.place) {
             anchor = {
-              position: pos,
-              viewport: first?.viewport ?? null,
+              position: outcome.place.position,
+              bounds: outcome.bounds,
             };
             destAnchorRef.current[destination] = anchor;
-            if (map) {
-              if (anchor.viewport) {
-                map.fitBounds(anchor.viewport);
-              } else {
-                map.setCenter(anchor.position);
-                map.setZoom(11);
-              }
-            }
+            setDestinationAnchor(anchor);
           }
         } catch (err) {
-          if (cancelled) return;
-          if (isQuotaError(err)) {
-            quotaBlockedRef.current = true;
-            window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
-            setLookupError(
-              'Unable to load place locations right now due to Maps quota limits.',
-            );
+          if (cancelled || (err instanceof Error && err.name === 'AbortError')) {
             return;
           }
         }
+      } else if (anchor) {
+        setDestinationAnchor(anchor);
       }
 
       const pending = stopsToResolve.filter((stop) => {
@@ -546,12 +694,13 @@ function ItineraryMapContent({
       }
 
       setResolvingProgress({ done: 0, total: pending.length });
-
-      const batchSize = 2;
       let completed = 0;
+      let hitRateLimit = false;
 
+      // Batch gently (2 concurrent requests) to respect free public OpenStreetMap geocoding limits
+      const batchSize = 2;
       for (let i = 0; i < pending.length; i += batchSize) {
-        if (cancelled || quotaBlockedRef.current) break;
+        if (cancelled) break;
         const batch = pending.slice(i, i + batchSize);
 
         await Promise.all(
@@ -567,41 +716,40 @@ function ItineraryMapContent({
                 : stop.locationQuery;
 
             try {
-              const { places } = await placesLib.Place.searchByText({
+              let outcome = await geocodeWithOsm(
                 textQuery,
-                fields: ['id', 'displayName', 'location', 'formattedAddress'],
-                maxResultCount: 1,
-                ...(anchor?.position ? { locationBias: anchor.position } : {}),
                 language,
-                internalUsageAttributionIds: ['gmp_mcp_codeassist_v1_aistudio'],
-              });
+                anchor,
+                controller.signal,
+              );
 
-              if (cancelled) return;
-
-              const match = places?.[0];
-              const position = toLatLngLiteral(match?.location);
-
-              if (match && position) {
-                cacheRef.current[cacheKey] = {
-                  placeId: match.id,
-                  displayName: match.displayName || stop.locationName,
-                  formattedAddress: match.formattedAddress || '',
-                  position,
-                };
-              } else {
-                cacheRef.current[cacheKey] = null;
-              }
-            } catch (err) {
-              if (cancelled) return;
-              if (isQuotaError(err)) {
-                quotaBlockedRef.current = true;
-                window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
-                setLookupError(
-                  'Unable to resolve remaining stops due to Maps quota limits.',
+              if (
+                !outcome.place &&
+                !outcome.rateLimited &&
+                stop.locationName &&
+                stop.locationName !== textQuery
+              ) {
+                const simpleQuery = destination
+                  ? `${stop.locationName}, ${destination.split(',')[0].trim()}`
+                  : stop.locationName;
+                outcome = await geocodeWithOsm(
+                  simpleQuery,
+                  language,
+                  anchor,
+                  controller.signal,
                 );
-              } else {
-                cacheRef.current[cacheKey] = null;
               }
+
+              if (cancelled) return;
+              if (outcome.rateLimited && !outcome.place) {
+                hitRateLimit = true;
+              }
+              cacheRef.current[cacheKey] = outcome.place;
+            } catch (err) {
+              if (cancelled || (err instanceof Error && err.name === 'AbortError')) {
+                return;
+              }
+              cacheRef.current[cacheKey] = null;
             }
           }),
         );
@@ -617,6 +765,11 @@ function ItineraryMapContent({
 
       if (!cancelled) {
         setResolvingProgress(null);
+        if (hitRateLimit) {
+          setLookupError(
+            'OpenStreetMap geocoding rate limit was reached for some stops. Please try filtering by a single day.',
+          );
+        }
       }
     };
 
@@ -624,8 +777,9 @@ function ItineraryMapContent({
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [placesLib, map, plan.destination, plan.language, stopsToResolve]);
+  }, [plan.destination, plan.language, stopsToResolve]);
 
   const resolvedStops = useMemo(() => {
     const list: Array<{
@@ -644,7 +798,7 @@ function ItineraryMapContent({
     return list;
   }, [visibleStops, plan.destination, resolvedByQuery]);
 
-  // Group resolved stops by day and build stable cache keys for route computation
+  // Group resolved stops by day and build stable cache keys for OSRM routing
   const dayRouteGroups = useMemo(() => {
     const groupsByDay: Record<
       number,
@@ -661,7 +815,6 @@ function ItineraryMapContent({
       groupsByDay[item.stop.day].push(item);
     }
 
-    const language = plan.language === 'ml' ? 'ml' : 'en';
     const orderedDays = Object.keys(groupsByDay)
       .map(Number)
       .sort((a, b) => a - b);
@@ -676,19 +829,14 @@ function ItineraryMapContent({
               `${item.stop.id}@${item.resolved.position.lat.toFixed(5)},${item.resolved.position.lng.toFixed(5)}`,
           )
           .join('|');
-        const cacheKey = `${plan.destination.trim().toLowerCase()}::day-${day}::${language}::${stopsSignature}`;
-        return { day, items, cacheKey, language };
+        const cacheKey = `${plan.destination.trim().toLowerCase()}::day-${day}::${stopsSignature}`;
+        return { day, items, cacheKey };
       });
-  }, [resolvedStops, plan.destination, plan.language]);
+  }, [resolvedStops, plan.destination]);
 
-  // Compute driving routes using Google Maps Platform Routes API (Route.computeRoutes)
+  // Compute driving routes using free OSRM public routing API
   useEffect(() => {
-    if (
-      !routesLib ||
-      resolvingProgress !== null ||
-      quotaBlockedRef.current ||
-      dayRouteGroups.length === 0
-    ) {
+    if (resolvingProgress !== null || dayRouteGroups.length === 0) {
       setRoutesLoading(false);
       return;
     }
@@ -702,14 +850,14 @@ function ItineraryMapContent({
       return;
     }
 
+    const controller = new AbortController();
     let cancelled = false;
     setRoutesLoading(true);
-    setRouteError(null);
 
     const computePairwiseFallback = async (
       group: (typeof dayRouteGroups)[number],
     ): Promise<DayRouteData> => {
-      const collectedRoutes: google.maps.routes.Route[] = [];
+      const polylines: LatLngPoint[][] = [];
       const legsByToStopId: Record<string, RouteLegMetric> = {};
       const unavailableToStopIds: Record<string, true> = {};
       let distanceMeters = 0;
@@ -719,43 +867,29 @@ function ItineraryMapContent({
       const totalSegments = group.items.length - 1;
 
       for (let i = 0; i < totalSegments; i += 1) {
-        if (cancelled || quotaBlockedRef.current) break;
+        if (cancelled) break;
         const fromItem = group.items[i];
         const toItem = group.items[i + 1];
 
         try {
-          const response = await routesLib.Route.computeRoutes({
-            origin: fromItem.resolved.position,
-            destination: toItem.resolved.position,
-            travelMode: 'DRIVING',
-            computeAlternativeRoutes: false,
-            fields: ['path', 'distanceMeters', 'durationMillis', 'legs'],
-            language: group.language,
-            internalUsageAttributionIds: ['gmp_mcp_codeassist_v1_aistudio'],
-          });
-
+          const data = await fetchOsrmDrivingRoute(
+            [fromItem.resolved.position, toItem.resolved.position],
+            controller.signal,
+          );
           if (cancelled) break;
-          const segRoute = response.routes?.[0];
-          const segLeg = segRoute?.legs?.[0];
-          const rawDistance =
-            typeof segRoute?.distanceMeters === 'number'
-              ? segRoute.distanceMeters
-              : typeof segLeg?.distanceMeters === 'number'
-                ? segLeg.distanceMeters
-                : null;
-          const segDuration =
-            typeof segRoute?.durationMillis === 'number'
-              ? segRoute.durationMillis
-              : typeof segLeg?.durationMillis === 'number'
-                ? segLeg.durationMillis
-                : null;
-          const hasValidRoute =
-            Boolean(segRoute) &&
-            (rawDistance !== null || (segRoute?.path?.length ?? 0) > 0);
 
-          if (segRoute && hasValidRoute) {
-            const segDistance = rawDistance ?? 0;
-            collectedRoutes.push(segRoute);
+          const segRoute = data?.routes?.[0];
+          const coords = segRoute?.geometry?.coordinates;
+          if (segRoute && coords && coords.length >= 2) {
+            const line = coords.map(([lng, lat]) => ({ lat, lng }));
+            const segDistance =
+              typeof segRoute.distance === 'number' ? segRoute.distance : 0;
+            const segDuration =
+              typeof segRoute.duration === 'number'
+                ? segRoute.duration * 1000
+                : null;
+
+            polylines.push(line);
             distanceMeters += segDistance;
             if (segDuration !== null) {
               durationMillis += segDuration;
@@ -772,14 +906,8 @@ function ItineraryMapContent({
             unavailableToStopIds[toItem.stop.id] = true;
           }
         } catch (err) {
-          if (cancelled) break;
-          if (isQuotaError(err)) {
-            quotaBlockedRef.current = true;
-            window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
-            setRouteError(
-              'Unable to calculate routes right now due to Maps quota limits.',
-            );
-            throw err;
+          if (cancelled || (err instanceof Error && err.name === 'AbortError')) {
+            break;
           }
           unavailableToStopIds[toItem.stop.id] = true;
         }
@@ -787,7 +915,7 @@ function ItineraryMapContent({
 
       return {
         day: group.day,
-        routes: collectedRoutes,
+        polylines,
         legsByToStopId,
         unavailableToStopIds,
         distanceMeters,
@@ -801,35 +929,29 @@ function ItineraryMapContent({
 
     const runComputeRoutes = async () => {
       for (const group of pendingGroups) {
-        if (cancelled || quotaBlockedRef.current) break;
+        if (cancelled) break;
 
+        const cappedItems = group.items.slice(0, 25);
         const totalSegments = group.items.length - 1;
-        // ComputeRoutes supports up to 25 intermediate waypoints (27 total stops)
-        const cappedItems = group.items.slice(0, 27);
-        const origin = cappedItems[0].resolved.position;
-        const destination = cappedItems[cappedItems.length - 1].resolved.position;
-        const intermediates: google.maps.routes.Waypoint[] = cappedItems
-          .slice(1, -1)
-          .map((item) => ({ location: item.resolved.position }));
 
         try {
-          const response = await routesLib.Route.computeRoutes({
-            origin,
-            destination,
-            ...(intermediates.length > 0 ? { intermediates } : {}),
-            travelMode: 'DRIVING',
-            computeAlternativeRoutes: false,
-            fields: ['path', 'distanceMeters', 'durationMillis', 'legs'],
-            language: group.language,
-            internalUsageAttributionIds: ['gmp_mcp_codeassist_v1_aistudio'],
-          });
-
+          const data = await fetchOsrmDrivingRoute(
+            cappedItems.map((item) => item.resolved.position),
+            controller.signal,
+          );
           if (cancelled) return;
 
-          const primaryRoute = response.routes?.[0];
+          const primaryRoute = data?.routes?.[0];
+          const coords = primaryRoute?.geometry?.coordinates;
           const legs = primaryRoute?.legs ?? [];
 
-          if (primaryRoute && legs.length >= cappedItems.length - 1) {
+          if (
+            primaryRoute &&
+            coords &&
+            coords.length >= 2 &&
+            legs.length >= cappedItems.length - 1
+          ) {
+            const line = coords.map(([lng, lat]) => ({ lat, lng }));
             const legsByToStopId: Record<string, RouteLegMetric> = {};
             const unavailableToStopIds: Record<string, true> = {};
             let summedDistance = 0;
@@ -841,9 +963,9 @@ function ItineraryMapContent({
               const toItem = cappedItems[i + 1];
               const leg = legs[i];
               const legDistance =
-                typeof leg?.distanceMeters === 'number' ? leg.distanceMeters : 0;
+                typeof leg?.distance === 'number' ? leg.distance : 0;
               const legDuration =
-                typeof leg?.durationMillis === 'number' ? leg.durationMillis : null;
+                typeof leg?.duration === 'number' ? leg.duration * 1000 : null;
 
               summedDistance += legDistance;
               if (legDuration !== null) {
@@ -858,26 +980,25 @@ function ItineraryMapContent({
               };
             }
 
-            // Mark any stops beyond the 27-stop API cap as unavailable cleanly
             for (let i = cappedItems.length; i < group.items.length; i += 1) {
               unavailableToStopIds[group.items[i].stop.id] = true;
             }
 
             const totalDistance =
-              typeof primaryRoute.distanceMeters === 'number'
-                ? primaryRoute.distanceMeters
+              typeof primaryRoute.distance === 'number'
+                ? primaryRoute.distance
                 : summedDistance;
             const totalDuration =
-              typeof primaryRoute.durationMillis === 'number'
-                ? primaryRoute.durationMillis
+              typeof primaryRoute.duration === 'number'
+                ? primaryRoute.duration * 1000
                 : summedDuration;
-            if (typeof primaryRoute.durationMillis === 'number') {
+            if (typeof primaryRoute.duration === 'number') {
               hasDuration = true;
             }
 
             routeCacheRef.current[group.cacheKey] = {
               day: group.day,
-              routes: [primaryRoute],
+              polylines: [line],
               legsByToStopId,
               unavailableToStopIds,
               distanceMeters: totalDistance,
@@ -888,31 +1009,19 @@ function ItineraryMapContent({
               unavailable: false,
             };
           } else {
-            // Whole-day route unavailable (e.g. an unroutable stop); try individual legs
             const fallbackResult = await computePairwiseFallback(group);
             if (!cancelled) {
               routeCacheRef.current[group.cacheKey] = fallbackResult;
             }
           }
         } catch (err) {
-          if (cancelled) return;
-          if (isQuotaError(err)) {
-            quotaBlockedRef.current = true;
-            window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
-            setRouteError(
-              'Unable to calculate routes right now due to Maps quota limits.',
-            );
-            break;
+          if (cancelled || (err instanceof Error && err.name === 'AbortError')) {
+            return;
           }
-
           if (group.items.length > 2) {
-            try {
-              const fallbackResult = await computePairwiseFallback(group);
-              if (!cancelled) {
-                routeCacheRef.current[group.cacheKey] = fallbackResult;
-              }
-            } catch {
-              if (cancelled || quotaBlockedRef.current) break;
+            const fallbackResult = await computePairwiseFallback(group);
+            if (!cancelled) {
+              routeCacheRef.current[group.cacheKey] = fallbackResult;
             }
           } else {
             const unavailableToStopIds: Record<string, true> = {};
@@ -921,7 +1030,7 @@ function ItineraryMapContent({
             }
             routeCacheRef.current[group.cacheKey] = {
               day: group.day,
-              routes: [],
+              polylines: [],
               legsByToStopId: {},
               unavailableToStopIds,
               distanceMeters: 0,
@@ -948,53 +1057,9 @@ function ItineraryMapContent({
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [routesLib, resolvingProgress, dayRouteGroups]);
-
-  // Render route polylines on the map using Route.createPolylines()
-  useEffect(() => {
-    polylinesRef.current.forEach((p) => p.setMap(null));
-    polylinesRef.current = [];
-
-    if (!map) return;
-
-    const created: google.maps.Polyline[] = [];
-    const isSingleDay = selectedDay !== 'all';
-
-    for (const group of dayRouteGroups) {
-      const routeData =
-        dayRoutesByKey[group.cacheKey] ?? routeCacheRef.current[group.cacheKey];
-      if (!routeData || routeData.routes.length === 0) continue;
-
-      const dayColor = getDayColor(group.day);
-      for (const route of routeData.routes) {
-        const polylines = route.createPolylines({
-          polylineOptions: {
-            strokeColor: dayColor,
-            strokeOpacity: isSingleDay ? 0.9 : 0.75,
-            strokeWeight: isSingleDay ? 5 : 4,
-            geodesic: true,
-            clickable: false,
-            zIndex: isSingleDay ? 20 : 10,
-          },
-        });
-
-        for (const polyline of polylines) {
-          polyline.setMap(map);
-          created.push(polyline);
-        }
-      }
-    }
-
-    polylinesRef.current = created;
-
-    return () => {
-      created.forEach((p) => p.setMap(null));
-      if (polylinesRef.current === created) {
-        polylinesRef.current = [];
-      }
-    };
-  }, [map, selectedDay, dayRouteGroups, dayRoutesByKey]);
+  }, [resolvingProgress, dayRouteGroups]);
 
   // Aggregate route summary & per-stop leg lookup across visible days
   const routeSummary = useMemo(() => {
@@ -1040,7 +1105,7 @@ function ItineraryMapContent({
     };
   }, [dayRouteGroups, dayRoutesByKey]);
 
-  // Trigger InfoWindow automatically on the first resolved attraction when a Day is clicked
+  // Trigger Popup automatically on the first resolved attraction when a Day is clicked
   useEffect(() => {
     if (autoOpenDayTarget === null || selectedDay !== autoOpenDayTarget) return;
 
@@ -1060,41 +1125,24 @@ function ItineraryMapContent({
   ]);
 
   const fitVisibleBounds = useCallback(() => {
-    if (!map || !coreLib || resolvedStops.length === 0) return;
+    const map = mapInstanceRef.current;
+    if (!map || resolvedStops.length === 0) return;
 
     if (resolvedStops.length === 1) {
-      map.panTo(resolvedStops[0].resolved.position);
-      map.setZoom(13);
+      const pos = resolvedStops[0].resolved.position;
+      map.setView([pos.lat, pos.lng], 13, { animate: true });
       return;
     }
 
-    const bounds = new coreLib.LatLngBounds();
-    for (const item of resolvedStops) {
-      bounds.extend(item.resolved.position);
-    }
-    map.fitBounds(bounds, 56);
-  }, [map, coreLib, resolvedStops]);
+    const bounds = L.latLngBounds(
+      resolvedStops.map((item) => [
+        item.resolved.position.lat,
+        item.resolved.position.lng,
+      ]),
+    );
+    map.fitBounds(bounds, { padding: [52, 52], maxZoom: 14 });
+  }, [resolvedStops]);
 
-  // Fit bounds when day filter or destination changes and resolved markers settle
-  const lastFitSignatureRef = useRef<string>('');
-  useEffect(() => {
-    if (!map || !coreLib || resolvedStops.length === 0) return;
-    const sig = `${plan.destination}::${selectedDay}::${resolvedStops.length}`;
-    if (lastFitSignatureRef.current === sig) return;
-    lastFitSignatureRef.current = sig;
-    fitVisibleBounds();
-  }, [map, coreLib, plan.destination, selectedDay, resolvedStops, fitVisibleBounds]);
-
-  // Pan to selected stop when selected externally (from stop list, day trigger, or schedule button)
-  useEffect(() => {
-    if (!map || !selectedStopId) return;
-    const target = resolvedStops.find((item) => item.stop.id === selectedStopId);
-    if (target) {
-      map.panTo(target.resolved.position);
-    }
-  }, [map, selectedStopId, resolvedStops]);
-
-  // Sort markers by latitude descending for consistent z-index overlap
   const sortedForRender = useMemo(() => {
     return [...resolvedStops]
       .sort((a, b) => b.resolved.position.lat - a.resolved.position.lat)
@@ -1104,91 +1152,287 @@ function ItineraryMapContent({
       }));
   }, [resolvedStops]);
 
-  const apiFailed =
-    loadingStatus === APILoadingStatus.FAILED ||
-    loadingStatus === APILoadingStatus.AUTH_FAILURE;
+  const selectedIndex = useMemo(() => {
+    if (!selectedStopId) return -1;
+    return resolvedStops.findIndex((item) => item.stop.id === selectedStopId);
+  }, [resolvedStops, selectedStopId]);
+
+  const selectedEntry =
+    selectedIndex >= 0 ? resolvedStops[selectedIndex] : null;
+
+  const selectedLat = selectedEntry?.resolved.position.lat ?? null;
+  const selectedLng = selectedEntry?.resolved.position.lng ?? null;
+  const selectedPopupPosition = useMemo<[number, number] | null>(
+    () =>
+      selectedLat !== null && selectedLng !== null
+        ? [selectedLat, selectedLng]
+        : null,
+    [selectedLat, selectedLng],
+  );
+
+  const renderedPolylines = useMemo(() => {
+    const isSingleDay = selectedDay !== 'all';
+    const items: Array<{
+      key: string;
+      positions: [number, number][];
+      color: string;
+      opacity: number;
+      weight: number;
+    }> = [];
+
+    for (const group of dayRouteGroups) {
+      const routeData =
+        dayRoutesByKey[group.cacheKey] ?? routeCacheRef.current[group.cacheKey];
+      if (!routeData || routeData.polylines.length === 0) continue;
+
+      const dayColor = getDayColor(group.day);
+      routeData.polylines.forEach((line, idx) => {
+        if (line.length < 2) return;
+        items.push({
+          key: `${group.cacheKey}::line-${idx}`,
+          positions: line.map((p) => [p.lat, p.lng]),
+          color: dayColor,
+          opacity: isSingleDay ? 0.9 : 0.75,
+          weight: isSingleDay ? 5 : 4,
+        });
+      });
+    }
+
+    return items;
+  }, [dayRouteGroups, dayRoutesByKey, selectedDay]);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] border-t border-black/10">
-      {/* Interactive Google Map Surface */}
-      <div className="relative w-full h-[380px] md:h-[440px] bg-black/[0.03]">
-        {apiFailed ? (
-          <div className="h-full w-full flex flex-col items-center justify-center p-6 text-center space-y-2">
-            <MapPin className="w-6 h-6 text-wandor-prompt" />
-            <p className="text-sm font-medium text-wandor-text">
-              Unable to load Google Maps
-            </p>
-            <p className="text-xs text-wandor-muted max-w-sm">
-              Please verify your network connection or Google Maps API key configuration.
-            </p>
-          </div>
-        ) : (
-          <GoogleMap
-            mapId="DEMO_MAP_ID"
-            defaultCenter={{ lat: 10.0889, lng: 77.0595 }}
-            defaultZoom={11}
-            gestureHandling="cooperative"
-            mapTypeControl={false}
-            streetViewControl={false}
-            fullscreenControl={true}
-            internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
-            onClick={() => onSelectStop(null)}
-            style={{ width: '100%', height: '100%' }}
-          >
-            {sortedForRender.map(({ stop, resolved, baseZIndex }) => {
-              const isSelected = selectedStopId === stop.id;
-              const isHovered = hoveredStopId === stop.id;
-              const zIndex = isSelected ? 1000 : isHovered ? 999 : baseZIndex;
-              const orderIndex = resolvedStops.findIndex(
-                (item) => item.stop.id === stop.id,
-              );
+      {/* Interactive OpenStreetMap Surface (Leaflet) */}
+      <div className="relative w-full h-[380px] md:h-[440px] bg-black/[0.03] z-0">
+        <MapContainer
+          center={DEFAULT_MAP_CENTER}
+          zoom={11}
+          scrollWheelZoom={true}
+          zoomControl={true}
+          style={{ width: '100%', height: '100%' }}
+        >
+          <TileLayer url={OSM_TILE_URL} attribution={OSM_ATTRIBUTION} />
 
-              return (
-                <ItineraryMarkerItem
-                  key={stop.id}
-                  stop={stop}
-                  resolved={resolved}
-                  displayOrder={stop.displayOrder}
-                  showDayPrefix={selectedDay === 'all'}
-                  isSelected={isSelected}
-                  isHovered={isHovered}
-                  zIndex={zIndex}
-                  currentIndex={orderIndex >= 0 ? orderIndex : 0}
-                  totalResolvedCount={resolvedStops.length}
-                  legFromPrev={routeSummary.legsByToStopId[stop.id]}
-                  routeUnavailableFromPrev={Boolean(
-                    routeSummary.unavailableToStopIds[stop.id],
+          <LeafletMapController
+            mapRef={mapInstanceRef}
+            anchor={destinationAnchor}
+            resolvedStops={resolvedStops}
+            selectedDay={selectedDay}
+            selectedStopId={selectedStopId}
+            destination={plan.destination}
+            onMapClick={() => onSelectStop(null)}
+          />
+
+          {renderedPolylines.map((line) => (
+            <Polyline
+              key={line.key}
+              positions={line.positions}
+              pathOptions={{
+                color: line.color,
+                opacity: line.opacity,
+                weight: line.weight,
+              }}
+            />
+          ))}
+
+          {sortedForRender.map(({ stop, resolved, baseZIndex }) => {
+            const isSelected = selectedStopId === stop.id;
+            const isHovered = hoveredStopId === stop.id;
+            const zIndexOffset = isSelected ? 1000 : isHovered ? 900 : baseZIndex;
+            const badgeText =
+              selectedDay === 'all'
+                ? `D${stop.day}·${stop.displayOrder}`
+                : String(stop.displayOrder);
+            const labelText =
+              stop.locationName || resolved.displayName || stop.activity;
+
+            const icon = createStopMarkerIcon({
+              badgeText,
+              labelText,
+              dayColor: getDayColor(stop.day),
+              isSelected,
+              isHovered,
+            });
+
+            return (
+              <Marker
+                key={stop.id}
+                position={[resolved.position.lat, resolved.position.lng]}
+                icon={icon}
+                zIndexOffset={zIndexOffset}
+                title={`${labelText} (Day ${stop.day})`}
+                eventHandlers={{
+                  click: (e) => {
+                    L.DomEvent.stopPropagation(e);
+                    onSelectStop(stop.id);
+                  },
+                  mouseover: () => setHoveredStopId(stop.id),
+                  mouseout: () => setHoveredStopId(null),
+                }}
+              />
+            );
+          })}
+
+          {selectedEntry && selectedPopupPosition && (
+            <Popup
+              position={selectedPopupPosition}
+              offset={[0, -40]}
+              maxWidth={300}
+              closeButton={false}
+              closeOnClick={false}
+              autoPan={true}
+              className="safar-leaflet-popup"
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                className="font-sans text-wandor-text space-y-2 min-w-[220px] max-w-[270px]"
+              >
+                <div className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-[0.04em] text-wandor-prompt">
+                  <span>
+                    Day {selectedEntry.stop.day}
+                    {selectedEntry.stop.time
+                      ? ` · ${selectedEntry.stop.time}`
+                      : ''}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {resolvedStops.length > 1 && (
+                      <span className="text-wandor-muted font-medium tabular-nums">
+                        {selectedIndex + 1}/{resolvedStops.length}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onSelectStop(null)}
+                      aria-label="Close stop details"
+                      className="cursor-pointer inline-flex items-center justify-center w-5 h-5 rounded-full text-wandor-muted hover:text-wandor-text hover:bg-black/5"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-sm font-semibold text-wandor-text leading-snug !m-0">
+                    {selectedEntry.resolved.displayName ||
+                      selectedEntry.stop.locationName}
+                  </p>
+                  {selectedEntry.stop.activity &&
+                    selectedEntry.stop.activity !==
+                      selectedEntry.resolved.displayName && (
+                      <p className="text-xs text-wandor-text/80 leading-snug !mt-0.5 !mb-0">
+                        {selectedEntry.stop.activity}
+                      </p>
+                    )}
+                </div>
+
+                {selectedEntry.resolved.formattedAddress && (
+                  <p className="text-[11px] text-wandor-muted leading-snug !m-0">
+                    {selectedEntry.resolved.formattedAddress}
+                  </p>
+                )}
+
+                {(selectedEntry.stop.visitingHours ||
+                  selectedEntry.stop.travelTimeFromPrev) && (
+                  <p className="text-[11px] text-wandor-muted !m-0">
+                    {selectedEntry.stop.visitingHours
+                      ? `Hours: ${selectedEntry.stop.visitingHours}`
+                      : ''}
+                    {selectedEntry.stop.visitingHours &&
+                    selectedEntry.stop.travelTimeFromPrev
+                      ? ' · '
+                      : ''}
+                    {selectedEntry.stop.travelTimeFromPrev}
+                  </p>
+                )}
+
+                {routeSummary.legsByToStopId[selectedEntry.stop.id] && (
+                  <div className="inline-flex items-center gap-1.5 rounded-lg bg-black/[0.04] px-2.5 py-1 text-[11px] font-medium text-wandor-text tabular-nums">
+                    <RouteIcon className="w-3 h-3 text-wandor-prompt shrink-0" />
+                    <span>
+                      Drive from previous:{' '}
+                      {formatRouteDistance(
+                        routeSummary.legsByToStopId[selectedEntry.stop.id]
+                          .distanceMeters,
+                      )}
+                      {formatRouteDuration(
+                        routeSummary.legsByToStopId[selectedEntry.stop.id]
+                          .durationMillis,
+                      )
+                        ? ` · ${formatRouteDuration(
+                            routeSummary.legsByToStopId[selectedEntry.stop.id]
+                              .durationMillis,
+                          )}`
+                        : ''}
+                    </span>
+                  </div>
+                )}
+
+                {!routeSummary.legsByToStopId[selectedEntry.stop.id] &&
+                  routeSummary.unavailableToStopIds[selectedEntry.stop.id] && (
+                    <p className="text-[11px] text-wandor-muted italic !m-0">
+                      Driving route unavailable from previous stop
+                    </p>
                   )}
-                  onSelect={() => onSelectStop(stop.id)}
-                  onSelectPrev={() => {
-                    if (resolvedStops.length <= 1) return;
-                    const prevIdx =
-                      (orderIndex - 1 + resolvedStops.length) %
-                      resolvedStops.length;
-                    onSelectStop(resolvedStops[prevIdx].stop.id);
-                  }}
-                  onSelectNext={() => {
-                    if (resolvedStops.length <= 1) return;
-                    const nextIdx = (orderIndex + 1) % resolvedStops.length;
-                    onSelectStop(resolvedStops[nextIdx].stop.id);
-                  }}
-                  onCloseInfo={() => onSelectStop(null)}
-                  onHover={(hovered) =>
-                    setHoveredStopId(hovered ? stop.id : null)
-                  }
-                  onJumpToSchedule={
-                    onJumpToScheduleSlot
-                      ? () => onJumpToScheduleSlot(stop.day, stop.id)
-                      : undefined
-                  }
-                />
-              );
-            })}
-          </GoogleMap>
-        )}
+
+                {(onJumpToScheduleSlot || resolvedStops.length > 1) && (
+                  <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-black/10">
+                    {onJumpToScheduleSlot ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onJumpToScheduleSlot(
+                            selectedEntry.stop.day,
+                            selectedEntry.stop.id,
+                          )
+                        }
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.04em] text-wandor-prompt hover:underline cursor-pointer"
+                      >
+                        View in schedule
+                      </button>
+                    ) : (
+                      <span />
+                    )}
+
+                    {resolvedStops.length > 1 && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const prevIdx =
+                              (selectedIndex - 1 + resolvedStops.length) %
+                              resolvedStops.length;
+                            onSelectStop(resolvedStops[prevIdx].stop.id);
+                          }}
+                          aria-label="Previous stop"
+                          className="cursor-pointer inline-flex items-center justify-center w-6 h-6 rounded-full border border-black/15 text-wandor-text hover:bg-black/5"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextIdx =
+                              (selectedIndex + 1) % resolvedStops.length;
+                            onSelectStop(resolvedStops[nextIdx].stop.id);
+                          }}
+                          aria-label="Next stop"
+                          className="cursor-pointer inline-flex items-center justify-center w-6 h-6 rounded-full border border-black/15 text-wandor-text hover:bg-black/5"
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </Popup>
+          )}
+        </MapContainer>
 
         {/* Map Overlay Controls */}
-        <div className="absolute top-3 left-3 right-14 flex flex-wrap items-center gap-2 pointer-events-none">
+        <div className="absolute top-3 left-14 right-3 z-[400] flex flex-wrap items-center gap-2 pointer-events-none">
           {resolvingProgress && (
             <div className="pointer-events-auto rounded-full bg-white/95 backdrop-blur-sm border border-black/10 px-3.5 py-1.5 text-xs font-medium text-wandor-text shadow-sm">
               Locating stops ({resolvingProgress.done}/{resolvingProgress.total})...
@@ -1240,9 +1484,9 @@ function ItineraryMapContent({
             )}
         </div>
 
-        {(lookupError || routeError) && (
-          <div className="absolute bottom-3 left-3 right-3 rounded-xl bg-amber-50/95 border border-amber-200 px-3.5 py-2 text-xs text-amber-900 shadow-sm">
-            {lookupError || routeError}
+        {lookupError && (
+          <div className="absolute bottom-7 left-3 right-3 z-[400] rounded-xl bg-amber-50/95 border border-amber-200 px-3.5 py-2 text-xs text-amber-900 shadow-sm">
+            {lookupError}
           </div>
         )}
       </div>
@@ -1388,7 +1632,6 @@ export default function ItineraryMap({
   dayTrigger,
   onJumpToScheduleSlot,
 }: ItineraryMapProps) {
-  const mapsApiKey = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '').trim();
   const allStops = useMemo(() => extractItineraryStops(plan), [plan]);
   const [autoOpenDayTarget, setAutoOpenDayTarget] = useState<number | null>(null);
 
@@ -1462,33 +1705,16 @@ export default function ItineraryMap({
         </div>
       </div>
 
-      {!mapsApiKey ? (
-        <div className="border-t border-black/10 p-10 text-center space-y-2 bg-black/[0.02]">
-          <MapPin className="w-6 h-6 text-wandor-prompt mx-auto" />
-          <p className="text-sm font-medium text-wandor-text">
-            Google Maps API key is not configured
-          </p>
-          <p className="text-xs text-wandor-muted max-w-md mx-auto">
-            Set VITE_GOOGLE_MAPS_API_KEY in your environment to visualize daily itinerary stops on an interactive map.
-          </p>
-        </div>
-      ) : (
-        <APIProvider
-          apiKey={mapsApiKey}
-          libraries={['places', 'marker', 'core', 'routes']}
-        >
-          <ItineraryMapContent
-            plan={plan}
-            allStops={allStops}
-            selectedDay={selectedDay}
-            selectedStopId={selectedStopId}
-            onSelectStop={onSelectStop}
-            autoOpenDayTarget={autoOpenDayTarget}
-            onClearAutoOpenDay={handleClearAutoOpenDay}
-            onJumpToScheduleSlot={onJumpToScheduleSlot}
-          />
-        </APIProvider>
-      )}
+      <ItineraryMapContent
+        plan={plan}
+        allStops={allStops}
+        selectedDay={selectedDay}
+        selectedStopId={selectedStopId}
+        onSelectStop={onSelectStop}
+        autoOpenDayTarget={autoOpenDayTarget}
+        onClearAutoOpenDay={handleClearAutoOpenDay}
+        onJumpToScheduleSlot={onJumpToScheduleSlot}
+      />
     </div>
   );
 }
