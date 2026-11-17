@@ -1,0 +1,238 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated Wandor user profile stored privately per user.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Authentication user UID."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 320,
+          "description": "Verified user email address."
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "User display name."
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "Profile avatar URL."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the profile was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the profile was last updated."
+        }
+      },
+      "required": ["uid", "email", "createdAt", "updatedAt"]
+    },
+    "Trip": {
+      "title": "Trip",
+      "description": "User-owned structured travel itinerary and budget plan stored in Cloud Firestore.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique trip document identifier."
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the user who owns this trip."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Trip title."
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "description": "Original user travel prompt or notes."
+        },
+        "destination": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Primary trip destination."
+        },
+        "startingLocation": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Departure city or starting point."
+        },
+        "departureDate": {
+          "type": "string",
+          "maxLength": 20,
+          "description": "ISO departure date (YYYY-MM-DD)."
+        },
+        "returnDate": {
+          "type": "string",
+          "maxLength": 20,
+          "description": "ISO return date (YYYY-MM-DD)."
+        },
+        "travelers": {
+          "type": "number",
+          "description": "Number of travelers (1-30)."
+        },
+        "durationDays": {
+          "type": "number",
+          "description": "Trip duration in days (1-30)."
+        },
+        "budgetAmount": {
+          "type": "number",
+          "description": "User target budget in selected currency."
+        },
+        "totalEstimatedBudget": {
+          "type": "number",
+          "description": "AI estimated total cost in selected currency."
+        },
+        "currency": {
+          "type": "string",
+          "enum": ["INR", "USD", "EUR"],
+          "description": "Selected currency code."
+        },
+        "travelStyle": {
+          "type": "string",
+          "enum": ["family", "solo", "couple", "adventure", "budget", "luxury"],
+          "description": "Trip personalization style."
+        },
+        "interests": {
+          "type": "array",
+          "description": "Selected travel interest tags (max 15)."
+        },
+        "tripSummary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000,
+          "description": "High-level itinerary summary."
+        },
+        "budgetBreakdown": {
+          "type": "object",
+          "description": "Categorized estimated costs (accommodation, food, transportation, activities, total, currency, disclaimer)."
+        },
+        "dailyItinerary": {
+          "type": "array",
+          "description": "Day-by-day schedule entries (max 30 days)."
+        },
+        "attractions": {
+          "type": "array",
+          "description": "Recommended attractions list (max 30)."
+        },
+        "accommodationSuggestions": {
+          "type": "array",
+          "description": "Area and tier stay suggestions (max 15)."
+        },
+        "foodRecommendations": {
+          "type": "array",
+          "description": "Local food and dining suggestions (max 20)."
+        },
+        "travelTips": {
+          "type": "array",
+          "description": "Practical travel tips (max 20)."
+        },
+        "suggestedFollowUps": {
+          "type": "array",
+          "description": "Suggested follow-up questions (max 10)."
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Optional user notes saved with the trip."
+        },
+        "language": {
+          "type": "string",
+          "enum": ["en", "ml"],
+          "description": "Language of generated itinerary."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["draft", "planned", "archived"],
+          "description": "Lifecycle state of the trip."
+        },
+        "aiProvider": {
+          "type": "string",
+          "enum": ["openai"],
+          "description": "Backend provider used to generate the trip plan."
+        },
+        "responseId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Optional OpenAI Responses API ID for follow-up context."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the trip was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the trip was last updated."
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "title",
+        "prompt",
+        "destination",
+        "travelers",
+        "durationDays",
+        "currency",
+        "travelStyle",
+        "tripSummary",
+        "totalEstimatedBudget",
+        "budgetBreakdown",
+        "dailyItinerary",
+        "attractions",
+        "accommodationSuggestions",
+        "foodRecommendations",
+        "travelTips",
+        "suggestedFollowUps",
+        "status",
+        "aiProvider",
+        "language",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Private user profile documents restricted strictly to the owning user."
+    },
+    "/trips/{tripId}": {
+      "schema": {
+        "$ref": "#/entities/Trip"
+      },
+      "description": "Persistent user travel itineraries isolated by ownerId."
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "SAFAR — Your Journey, Your Story.",
+  "short_name": "SAFAR",
+  "description": "SAFAR (سفر) — Your Journey, Your Story. Plan personalized AI travel itineraries, budgets, maps, and destination photography.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0a0a0a",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
