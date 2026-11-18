@@ -10,11 +10,15 @@ export interface FirebasePublicConfig {
 function loadFirebaseConfig(): FirebasePublicConfig {
   const candidates = [
     path.resolve(process.cwd(), 'firebase-applet-config.json'),
-    path.resolve(
-      path.dirname(new URL(import.meta.url).pathname),
-      '../../firebase-applet-config.json',
-    ),
   ];
+  if (typeof import.meta !== 'undefined' && typeof import.meta.url === 'string' && import.meta.url) {
+    candidates.push(
+      path.resolve(
+        path.dirname(new URL(import.meta.url).pathname),
+        '../../firebase-applet-config.json',
+      ),
+    );
+  }
 
   const configPath = candidates.find((candidate) => fs.existsSync(candidate));
   const fallbackProjectId =
