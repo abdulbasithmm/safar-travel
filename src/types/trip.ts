@@ -111,3 +111,23 @@ export interface TripRecord extends StructuredTripPlan {
   createdAt: Date | null;
   updatedAt: Date | null;
 }
+
+export interface SharedTripRecord extends StructuredTripPlan {
+  id: string;
+  tripId: string;
+  ownerId: string;
+  isPublic: boolean;
+  title: string;
+  country: string;
+  startingLocation: string;
+  departureDate: string;
+  returnDate: string;
+  travelers: number;
+  durationDays: number;
+  travelStyle: TravelStyle;
+  interests: string[];
+  notes?: string;
+  createdAt: Date | null;
+  updatedAt: Date | null;
+}
+

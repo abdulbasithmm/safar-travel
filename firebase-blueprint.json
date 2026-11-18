@@ -219,6 +219,169 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "SharedTrip": {
+      "title": "SharedTrip",
+      "description": "Sanitized, owner-authorized public snapshot of a saved trip itinerary (excludes PII, email, prompts, and session IDs).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unguessable public share document identifier."
+        },
+        "tripId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Source trip ID in /trips/{tripId}."
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the owning user."
+        },
+        "isPublic": {
+          "type": "boolean",
+          "description": "Explicit owner-controlled flag enabling or revoking public read access."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Shared trip title."
+        },
+        "destination": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Primary destination."
+        },
+        "country": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Destination country when available."
+        },
+        "startingLocation": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Departure city or starting point."
+        },
+        "departureDate": {
+          "type": "string",
+          "maxLength": 20,
+          "description": "ISO departure date."
+        },
+        "returnDate": {
+          "type": "string",
+          "maxLength": 20,
+          "description": "ISO return date."
+        },
+        "travelers": {
+          "type": "number",
+          "description": "Number of travelers (1-30)."
+        },
+        "durationDays": {
+          "type": "number",
+          "description": "Trip duration in days (1-30)."
+        },
+        "totalEstimatedBudget": {
+          "type": "number",
+          "description": "Estimated total cost in selected currency."
+        },
+        "currency": {
+          "type": "string",
+          "enum": ["INR", "USD", "EUR"],
+          "description": "Selected currency code."
+        },
+        "travelStyle": {
+          "type": "string",
+          "enum": ["family", "solo", "couple", "adventure", "budget", "luxury"],
+          "description": "Trip personalization style."
+        },
+        "interests": {
+          "type": "array",
+          "description": "Selected travel interest tags (max 15)."
+        },
+        "tripSummary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000,
+          "description": "High-level itinerary summary."
+        },
+        "budgetBreakdown": {
+          "type": "object",
+          "description": "Categorized estimated costs."
+        },
+        "dailyItinerary": {
+          "type": "array",
+          "description": "Day-by-day schedule entries (max 30 days)."
+        },
+        "attractions": {
+          "type": "array",
+          "description": "Recommended attractions list (max 30)."
+        },
+        "accommodationSuggestions": {
+          "type": "array",
+          "description": "Stay suggestions (max 15)."
+        },
+        "foodRecommendations": {
+          "type": "array",
+          "description": "Food recommendations (max 20)."
+        },
+        "travelTips": {
+          "type": "array",
+          "description": "Travel tips (max 20)."
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Optional user notes included only if owner opted in."
+        },
+        "language": {
+          "type": "string",
+          "enum": ["en", "ml"],
+          "description": "Language of generated itinerary."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when shared trip was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when shared trip was last updated."
+        }
+      },
+      "required": [
+        "id",
+        "tripId",
+        "ownerId",
+        "isPublic",
+        "title",
+        "destination",
+        "travelers",
+        "durationDays",
+        "currency",
+        "travelStyle",
+        "tripSummary",
+        "totalEstimatedBudget",
+        "budgetBreakdown",
+        "dailyItinerary",
+        "attractions",
+        "accommodationSuggestions",
+        "foodRecommendations",
+        "travelTips",
+        "language",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -233,6 +396,12 @@
         "$ref": "#/entities/Trip"
       },
       "description": "Persistent user travel itineraries isolated by ownerId."
+    },
+    "/sharedTrips/{shareId}": {
+      "schema": {
+        "$ref": "#/entities/SharedTrip"
+      },
+      "description": "Sanitized public read-only itinerary snapshots governed by ownerId and isPublic."
     }
   }
 }

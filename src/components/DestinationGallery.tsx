@@ -154,6 +154,7 @@ export default function DestinationGallery({
   return (
     <section
       id="destinations"
+      data-print-hide="true"
       className="w-full bg-white text-wandor-text border-t border-black/10"
     >
       <div className="max-w-[1200px] mx-auto px-6 py-16 md:py-20 space-y-8">

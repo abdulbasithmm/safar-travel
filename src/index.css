@@ -30,3 +30,40 @@
 .safar-leaflet-popup .leaflet-popup-tip {
   box-shadow: 0 4px 12px rgba(10, 10, 10, 0.1);
 }
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 14mm;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #0a0a0a !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  [data-print-hide='true'],
+  .safar-print-hide {
+    display: none !important;
+  }
+
+  .safar-print-container {
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .safar-print-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    box-shadow: none !important;
+  }
+
+  .safar-print-expand {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}
+

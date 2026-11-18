@@ -1647,6 +1647,7 @@ export default function ItineraryMap({
   return (
     <div
       id="itinerary-map"
+      data-print-hide="true"
       className="rounded-[28px] border border-black/10 bg-white overflow-hidden"
     >
       {/* Map Header & Day Filter Bar */}

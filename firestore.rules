@@ -286,5 +286,172 @@ service cloud.firestore {
         isVerifiedUser() &&
         existing().ownerId == request.auth.uid;
     }
+
+    function isValidSharedTrip(data, shareId) {
+      return data.keys().hasAll([
+          'id',
+          'tripId',
+          'ownerId',
+          'isPublic',
+          'title',
+          'destination',
+          'travelers',
+          'durationDays',
+          'currency',
+          'travelStyle',
+          'tripSummary',
+          'totalEstimatedBudget',
+          'budgetBreakdown',
+          'dailyItinerary',
+          'attractions',
+          'accommodationSuggestions',
+          'foodRecommendations',
+          'travelTips',
+          'language',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'tripId',
+          'ownerId',
+          'isPublic',
+          'title',
+          'destination',
+          'country',
+          'startingLocation',
+          'departureDate',
+          'returnDate',
+          'travelers',
+          'durationDays',
+          'totalEstimatedBudget',
+          'currency',
+          'travelStyle',
+          'interests',
+          'tripSummary',
+          'budgetBreakdown',
+          'dailyItinerary',
+          'attractions',
+          'accommodationSuggestions',
+          'foodRecommendations',
+          'travelTips',
+          'notes',
+          'language',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.id is string &&
+        data.id == shareId &&
+        isValidId(data.id) &&
+        data.tripId is string &&
+        isValidId(data.tripId) &&
+        data.ownerId is string &&
+        data.ownerId == request.auth.uid &&
+        isValidId(data.ownerId) &&
+        data.isPublic is bool &&
+        data.title is string &&
+        data.title.size() >= 1 &&
+        data.title.size() <= 200 &&
+        data.destination is string &&
+        data.destination.size() >= 1 &&
+        data.destination.size() <= 200 &&
+        (!('country' in data) || (data.country is string && data.country.size() <= 120)) &&
+        (!('startingLocation' in data) || (data.startingLocation is string && data.startingLocation.size() <= 200)) &&
+        (!('departureDate' in data) || (data.departureDate is string && data.departureDate.size() <= 20)) &&
+        (!('returnDate' in data) || (data.returnDate is string && data.returnDate.size() <= 20)) &&
+        data.travelers is int &&
+        data.travelers >= 1 &&
+        data.travelers <= 30 &&
+        data.durationDays is int &&
+        data.durationDays >= 1 &&
+        data.durationDays <= 30 &&
+        (data.totalEstimatedBudget is int || data.totalEstimatedBudget is float) &&
+        data.totalEstimatedBudget >= 0 &&
+        data.currency in ['INR', 'USD', 'EUR'] &&
+        data.travelStyle in ['family', 'solo', 'couple', 'adventure', 'budget', 'luxury'] &&
+        (!('interests' in data) || (data.interests is list && data.interests.size() <= 15 && (data.interests.size() == 0 || data.interests[0] is string))) &&
+        data.tripSummary is string &&
+        data.tripSummary.size() >= 1 &&
+        data.tripSummary.size() <= 4000 &&
+        isValidBudgetBreakdown(data.budgetBreakdown) &&
+        data.dailyItinerary is list &&
+        data.dailyItinerary.size() <= 30 &&
+        (data.dailyItinerary.size() == 0 || data.dailyItinerary[0] is map) &&
+        data.attractions is list &&
+        data.attractions.size() <= 30 &&
+        (data.attractions.size() == 0 || data.attractions[0] is map) &&
+        data.accommodationSuggestions is list &&
+        data.accommodationSuggestions.size() <= 15 &&
+        (data.accommodationSuggestions.size() == 0 || data.accommodationSuggestions[0] is map) &&
+        data.foodRecommendations is list &&
+        data.foodRecommendations.size() <= 20 &&
+        (data.foodRecommendations.size() == 0 || data.foodRecommendations[0] is map) &&
+        data.travelTips is list &&
+        data.travelTips.size() <= 20 &&
+        (data.travelTips.size() == 0 || data.travelTips[0] is string) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000)) &&
+        data.language in ['en', 'ml'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    match /sharedTrips/{shareId} {
+      allow get: if isValidId(shareId) && (
+        existing().isPublic == true ||
+        (isSignedIn() && existing().ownerId == request.auth.uid)
+      );
+      allow list: if isSignedIn() &&
+        resource.data.ownerId == request.auth.uid;
+      allow create: if isValidId(shareId) &&
+        isVerifiedUser() &&
+        isValidSharedTrip(incoming(), shareId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/trips/$(incoming().tripId)) &&
+        get(/databases/$(database)/documents/trips/$(incoming().tripId)).data.ownerId == request.auth.uid;
+      allow update: if isValidId(shareId) &&
+        isVerifiedUser() &&
+        existing().ownerId == request.auth.uid &&
+        isValidSharedTrip(incoming(), shareId) &&
+        incoming().id == existing().id &&
+        incoming().tripId == existing().tripId &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'isPublic',
+            'title',
+            'destination',
+            'country',
+            'startingLocation',
+            'departureDate',
+            'returnDate',
+            'travelers',
+            'durationDays',
+            'totalEstimatedBudget',
+            'currency',
+            'travelStyle',
+            'interests',
+            'tripSummary',
+            'budgetBreakdown',
+            'dailyItinerary',
+            'attractions',
+            'accommodationSuggestions',
+            'foodRecommendations',
+            'travelTips',
+            'notes',
+            'language',
+            'updatedAt'
+          ]) ||
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'isPublic',
+            'updatedAt'
+          ])
+        );
+      allow delete: if isValidId(shareId) &&
+        isVerifiedUser() &&
+        existing().ownerId == request.auth.uid;
+    }
   }
 }

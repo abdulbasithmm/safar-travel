@@ -5,7 +5,10 @@ interface FooterProps {
 
 export default function Footer({ onPlanClick, onTripsClick }: FooterProps) {
   return (
-    <footer className="w-full bg-white text-wandor-text border-t border-black/10">
+    <footer
+      data-print-hide="true"
+      className="w-full bg-white text-wandor-text border-t border-black/10"
+    >
       <div className="max-w-[1200px] mx-auto px-6 py-12 md:py-14 flex flex-col md:flex-row md:items-center justify-between gap-8">
         <div className="space-y-2">
           <div className="flex items-baseline gap-3">

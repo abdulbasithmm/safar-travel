@@ -5,10 +5,14 @@ import {
   Camera,
   Clock,
   Compass,
+  Download,
+  Loader2,
   MapPin,
   Pencil,
+  Printer,
   RefreshCw,
   Send,
+  Share2,
   Trash2,
   Users,
   Utensils,
@@ -20,9 +24,11 @@ import type { DestinationDetailTarget } from '@/components/DestinationDetailModa
 import ItineraryMap, { buildScheduleStopId } from '@/components/ItineraryMap';
 import type { DayMapTrigger } from '@/components/ItineraryMap';
 import ResponsivePhoto from '@/components/ResponsivePhoto';
+import ShareTripModal from '@/components/ShareTripModal';
 import { AIClientError, sendAiChatMessage } from '@/services/aiService';
 import type { ChatTurn } from '@/services/aiService';
 import { searchDestinationPhotos } from '@/services/photoService';
+import { findExistingShareForTrip } from '@/services/shareService';
 import {
   deleteUserTrip,
   formatFirestoreTripError,
@@ -31,11 +37,16 @@ import {
   subscribeToUserTrips,
   updateUserTrip,
 } from '@/services/tripService';
+import {
+  exportTripToPdf,
+  extractDestinationAndCountry,
+} from '@/utils/tripPdfExport';
 import type { DestinationPhoto } from '@/types/photo';
 import type {
   BudgetBreakdown,
   CurrencyCode,
   PreferredLanguage,
+  SharedTripRecord,
   StructuredTripPlan,
   TravelStyle,
   TripPlanInput,
@@ -57,7 +68,7 @@ interface TripPlannerProps {
 type PlannerTab = 'plan' | 'itinerary' | 'trips';
 
 interface PlannerErrorState {
-  category: 'auth' | 'ai' | 'save' | 'validation';
+  category: 'auth' | 'ai' | 'save' | 'validation' | 'export';
   message: string;
   retryAction?: 'generate' | 'save';
 }
@@ -167,6 +178,9 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [loadingStageIndex, setLoadingStageIndex] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [savedShare, setSavedShare] = useState<SharedTripRecord | null>(null);
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
   const [errorState, setErrorState] = useState<PlannerErrorState | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
@@ -223,6 +237,31 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
 
     return unsubscribe;
   }, [authReady, user]);
+
+  // Load existing share link record when editing a saved trip
+  useEffect(() => {
+    if (!user || !editingTripId) {
+      setSavedShare(null);
+      return;
+    }
+
+    let cancelled = false;
+    findExistingShareForTrip(user.uid, editingTripId)
+      .then((share) => {
+        if (!cancelled) {
+          setSavedShare(share);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSavedShare(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, editingTripId]);
 
   // Auto-calculate duration when both dates are set
   useEffect(() => {
@@ -429,6 +468,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
       setActiveInput(input);
       setActiveResponseId(result.responseId);
       setEditingTripId(null);
+      setSavedShare(null);
       setTripTitle(`${input.durationDays}-Day ${result.plan.destination}`);
       setTripNotes('');
       setTripStatus('planned');
@@ -568,6 +608,69 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
     }
   };
 
+  const activeCountry = useMemo(() => {
+    if (!activePlan?.destination) return '';
+    return extractDestinationAndCountry(activePlan.destination).country;
+  }, [activePlan?.destination]);
+
+  const ensureTripSavedForShare = async (): Promise<string | null> => {
+    if (!activePlan) return null;
+    if (editingTripId) return editingTripId;
+
+    const activeUser = user ?? (await signInWithGoogle());
+    if (!activeUser) return null;
+
+    const input = activeInput ?? buildCurrentInput();
+    const newId = await saveTrip(activeUser, input, activePlan, {
+      title: tripTitle || `${input.durationDays}-Day ${activePlan.destination}`,
+      notes: tripNotes,
+      status: tripStatus,
+      responseId: activeResponseId,
+    });
+    setEditingTripId(newId);
+    return newId;
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!activePlan || isExportingPdf) return;
+    setErrorState(null);
+    setStatusMsg(null);
+    setIsExportingPdf(true);
+
+    try {
+      const result = await exportTripToPdf({
+        plan: activePlan,
+        title: tripTitle,
+        country: activeCountry,
+        startingLocation: activeInput?.startingLocation ?? startingLocation,
+        departureDate: activeInput?.departureDate ?? departureDate,
+        returnDate: activeInput?.returnDate ?? returnDate,
+        travelers: activeInput?.travelers ?? travelers,
+        travelStyle: activeInput?.travelStyle ?? travelStyle,
+        budgetAmount: activeInput?.budgetAmount ?? budgetAmount,
+        notes: tripNotes,
+        photos: destPhotos,
+      });
+      setStatusMsg(
+        `Downloaded ${result.fileName} (${result.pageCount} ${result.pageCount === 1 ? 'page' : 'pages'}).`,
+      );
+    } catch (err) {
+      setErrorState({
+        category: 'export',
+        message:
+          err instanceof Error
+            ? err.message
+            : 'Unable to generate PDF right now. You can use Print Trip as an alternative.',
+      });
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
+  const handlePrintTrip = () => {
+    window.print();
+  };
+
   const handleLoadTrip = (trip: TripRecord, openInForm = false) => {
     setErrorState(null);
     setStatusMsg(null);
@@ -639,6 +742,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
       await deleteUserTrip(tripId);
       if (editingTripId === tripId) {
         setEditingTripId(null);
+        setSavedShare(null);
         setActivePlan(null);
         setActiveTab('trips');
       }
@@ -746,9 +850,12 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
       id="planner"
       className="w-full bg-white text-wandor-text border-t border-black/10"
     >
-      <div className="max-w-[1200px] mx-auto px-6 py-16 md:py-20">
+      <div className="max-w-[1200px] mx-auto px-6 py-16 md:py-20 safar-print-container">
         {/* Section Header + Segmented Navigation */}
-        <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between pb-8 border-b border-black/10">
+        <div
+          data-print-hide="true"
+          className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between pb-8 border-b border-black/10"
+        >
           <div>
             <p className="font-sans text-xs font-semibold uppercase tracking-[0.08em] text-wandor-prompt mb-2">
               SAFAR Trip Studio · سفر
@@ -810,6 +917,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
         {errorState && (
           <div
             role="alert"
+            data-print-hide="true"
             className="mt-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-red-200 bg-red-50/80 px-5 py-4 text-sm text-red-800"
           >
             <span>
@@ -820,7 +928,9 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                     ? 'Sign-in error: '
                     : errorState.category === 'validation'
                       ? 'Check trip details: '
-                      : 'AI itinerary error: '}
+                      : errorState.category === 'export'
+                        ? 'PDF export error: '
+                        : 'AI itinerary error: '}
               </strong>
               {errorState.message}
             </span>
@@ -858,6 +968,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
         {statusMsg && (
           <div
             role="status"
+            data-print-hide="true"
             className="mt-6 flex items-center justify-between gap-4 rounded-2xl border border-black/10 bg-black/[0.03] px-5 py-3.5 text-sm text-wandor-text"
           >
             <span>{statusMsg}</span>
@@ -1129,13 +1240,19 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
         {activeTab === 'itinerary' && activePlan && (
           <div className="mt-8 space-y-10">
             {/* Trip Overview & Persistence Controls */}
-            <div className="rounded-[28px] border border-black/10 p-6 md:p-8 space-y-6">
+            <div className="rounded-[28px] border border-black/10 p-6 md:p-8 space-y-6 safar-print-card">
               <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
                 <div className="flex-1 space-y-3">
                   <div className="flex flex-wrap items-center gap-3 text-xs font-medium uppercase tracking-[0.04em] text-wandor-muted">
                     <span className="inline-flex items-center gap-1 text-wandor-prompt">
                       <MapPin className="w-3.5 h-3.5" />
                       {activePlan.destination}
+                      {activeCountry &&
+                      !activePlan.destination
+                        .toLowerCase()
+                        .includes(activeCountry.toLowerCase())
+                        ? ` (${activeCountry})`
+                        : ''}
                     </span>
                     <span aria-hidden="true">·</span>
                     <span className="inline-flex items-center gap-1 tabular-nums">
@@ -1167,7 +1284,10 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                   </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 shrink-0">
+                <div
+                  data-print-hide="true"
+                  className="flex flex-wrap items-center gap-2.5 shrink-0 lg:max-w-[440px] lg:justify-end"
+                >
                   <select
                     aria-label="Trip status"
                     value={tripStatus}
@@ -1194,6 +1314,38 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
 
                   <button
                     type="button"
+                    disabled={isExportingPdf}
+                    onClick={() => void handleDownloadPdf()}
+                    className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-black/15 bg-white px-4 py-2.5 text-xs font-medium uppercase tracking-[0.04em] text-wandor-text hover:bg-black/5 disabled:opacity-60"
+                  >
+                    {isExportingPdf ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Download className="w-3.5 h-3.5 text-wandor-prompt" />
+                    )}
+                    {isExportingPdf ? 'Exporting PDF...' : 'Download PDF'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsShareModalOpen(true)}
+                    className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-black/15 bg-white px-4 py-2.5 text-xs font-medium uppercase tracking-[0.04em] text-wandor-text hover:bg-black/5"
+                  >
+                    <Share2 className="w-3.5 h-3.5 text-wandor-prompt" />
+                    Share Trip
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handlePrintTrip}
+                    className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-black/15 bg-white px-4 py-2.5 text-xs font-medium uppercase tracking-[0.04em] text-wandor-text hover:bg-black/5"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-wandor-prompt" />
+                    Print Trip
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => setActiveTab('plan')}
                     className="cursor-pointer rounded-full border border-black/15 bg-white px-4 py-2.5 text-xs font-medium uppercase tracking-[0.04em] text-wandor-text hover:bg-black/5"
                   >
@@ -1202,7 +1354,10 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                 </div>
               </div>
 
-              <label className="block">
+              <label
+                data-print-hide={tripNotes.trim() ? undefined : 'true'}
+                className="block"
+              >
                 <span className="block text-xs font-semibold uppercase tracking-[0.04em] text-wandor-muted mb-2">
                   Personal Notes
                 </span>
@@ -1218,7 +1373,10 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
 
               {/* Connected Destination Photo Gallery Strip */}
               {(destPhotosLoading || destPhotos.length > 0) && (
-                <div className="pt-4 border-t border-black/10 space-y-3">
+                <div
+                  data-print-hide="true"
+                  className="pt-4 border-t border-black/10 space-y-3"
+                >
                   <div className="flex items-center justify-between gap-3">
                     <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.04em] text-wandor-muted">
                       <Camera className="w-3.5 h-3.5 text-wandor-prompt" />
@@ -1285,7 +1443,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
             </div>
 
             {/* Budget Planner */}
-            <div className="rounded-[28px] border border-black/10 p-6 md:p-8 space-y-6">
+            <div className="rounded-[28px] border border-black/10 p-6 md:p-8 space-y-6 safar-print-card">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-2.5">
                   <Wallet className="w-5 h-5 text-wandor-prompt" />
@@ -1371,7 +1529,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                   return (
                     <div
                       key={day.day}
-                      className={`rounded-[24px] border p-6 space-y-4 transition-colors ${
+                      className={`rounded-[24px] border p-6 space-y-4 transition-colors safar-print-card ${
                         isDayFocused
                           ? 'border-wandor-prompt/50 ring-1 ring-wandor-prompt/20'
                           : 'border-black/10'
@@ -1397,6 +1555,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                           </span>
                           <button
                             type="button"
+                            data-print-hide="true"
                             onClick={() => focusDayOnMap(day.day)}
                             className={`cursor-pointer inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium uppercase tracking-[0.04em] transition-colors ${
                               isDayFocused
@@ -1451,6 +1610,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                                     {(slot.location || slot.activity) && (
                                       <button
                                         type="button"
+                                        data-print-hide="true"
                                         onClick={() => {
                                           setMapDayTrigger(null);
                                           setSelectedMapDay(day.day);
@@ -1493,7 +1653,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
 
             {/* Attractions, Stays, Food */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="rounded-[24px] border border-black/10 p-6 space-y-4">
+              <div className="rounded-[24px] border border-black/10 p-6 space-y-4 safar-print-card">
                 <div className="flex items-center gap-2">
                   <Compass className="w-4 h-4 text-wandor-prompt" />
                   <h3 className="text-base font-medium text-wandor-text">
@@ -1508,6 +1668,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                         {attrPhoto && (
                           <button
                             type="button"
+                            data-print-hide="true"
                             onClick={() =>
                               setPhotoModalTarget({
                                 name: item.name,
@@ -1538,7 +1699,10 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                             {item.description}
                           </p>
                           {attrPhoto && (
-                            <p className="text-[11px] text-wandor-muted">
+                            <p
+                              data-print-hide="true"
+                              className="text-[11px] text-wandor-muted"
+                            >
                               Photo by{' '}
                               <a
                                 href={attrPhoto.attribution.photographerUrl}
@@ -1566,7 +1730,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                 </div>
               </div>
 
-              <div className="rounded-[24px] border border-black/10 p-6 space-y-4">
+              <div className="rounded-[24px] border border-black/10 p-6 space-y-4 safar-print-card">
                 <div className="flex items-center gap-2">
                   <MapPin className="w-4 h-4 text-wandor-prompt" />
                   <h3 className="text-base font-medium text-wandor-text">
@@ -1590,7 +1754,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                 </div>
               </div>
 
-              <div className="rounded-[24px] border border-black/10 p-6 space-y-4">
+              <div className="rounded-[24px] border border-black/10 p-6 space-y-4 safar-print-card">
                 <div className="flex items-center gap-2">
                   <Utensils className="w-4 h-4 text-wandor-prompt" />
                   <h3 className="text-base font-medium text-wandor-text">
@@ -1617,7 +1781,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
 
             {/* Travel Tips & Contextual Follow-up Chat */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="rounded-[24px] border border-black/10 p-6 space-y-3">
+              <div className="rounded-[24px] border border-black/10 p-6 space-y-3 safar-print-card">
                 <h3 className="text-base font-medium text-wandor-text">
                   Travel Tips
                 </h3>
@@ -1630,7 +1794,10 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                 </ul>
               </div>
 
-              <div className="rounded-[24px] border border-black/10 p-6 space-y-4">
+              <div
+                data-print-hide="true"
+                className="rounded-[24px] border border-black/10 p-6 space-y-4"
+              >
                 <h3 className="text-base font-medium text-wandor-text">
                   Ask SAFAR AI Follow-Ups (English / മലയാളം)
                 </h3>
@@ -1830,6 +1997,21 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
         target={photoModalTarget}
         onClose={() => setPhotoModalTarget(null)}
       />
+
+      {activePlan && (
+        <ShareTripModal
+          isOpen={isShareModalOpen}
+          onClose={() => setIsShareModalOpen(false)}
+          title={tripTitle}
+          input={activeInput ?? buildCurrentInput()}
+          plan={activePlan}
+          notes={tripNotes}
+          editingTripId={editingTripId}
+          savedShare={savedShare}
+          onShareChange={setSavedShare}
+          onEnsureTripSaved={ensureTripSavedForShare}
+        />
+      )}
     </section>
   );
 }

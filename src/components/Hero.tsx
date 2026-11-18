@@ -78,7 +78,10 @@ export default function Hero({ onPlanRequest, onOpenTrips }: HeroProps) {
   };
 
   return (
-    <section className="relative min-h-svh w-full overflow-hidden">
+    <section
+      data-print-hide="true"
+      className="relative min-h-svh w-full overflow-hidden"
+    >
       <video
         className="absolute inset-0 w-full h-full object-cover z-0"
         src={HERO_VIDEO_SRC}
