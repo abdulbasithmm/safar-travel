@@ -1,36 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
-  Calendar,
-  Camera,
-  Clock,
-  Compass,
-  Download,
-  Loader2,
   MapPin,
   Pencil,
   Plus,
-  Printer,
   RefreshCw,
-  Send,
   Settings,
-  Share2,
   Sparkles,
   Trash2,
-  Users,
-  Utensils,
   Wallet,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import DestinationDetailModal from '@/components/DestinationDetailModal';
 import type { DestinationDetailTarget } from '@/components/DestinationDetailModal';
-import ItineraryMap, { buildScheduleStopId } from '@/components/ItineraryMap';
 import type { DayMapTrigger } from '@/components/ItineraryMap';
+import ItineraryResultsView from '@/components/ItineraryResultsView';
 import ProfileSettingsPanel, {
   DEFAULT_PLANNER_PREFERENCES,
 } from '@/components/ProfileSettingsPanel';
 import type { PlannerPreferences } from '@/components/ProfileSettingsPanel';
-import ResponsivePhoto from '@/components/ResponsivePhoto';
 import ShareTripModal from '@/components/ShareTripModal';
 import { AIClientError, sendAiChatMessage } from '@/services/aiService';
 import type { ChatTurn } from '@/services/aiService';
@@ -1379,651 +1367,61 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
 
         {/* TAB 2: ITINERARY & BUDGET */}
         {activeTab === 'itinerary' && activePlan && (
-          <div className="mt-8 space-y-8">
-            {/* Trip Overview & Persistence Controls */}
-            <div className="rounded-[28px] border border-safar-border bg-gradient-to-br from-safar-skySoft/85 via-white to-white p-6 md:p-8 space-y-6 shadow-[0_10px_32px_rgba(15,37,68,0.05)] safar-print-card">
-              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
-                <div className="flex-1 space-y-3">
-                  <div className="flex flex-wrap items-center gap-3 text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
-                    <span className="inline-flex items-center gap-1 text-safar-orange">
-                      <MapPin className="w-3.5 h-3.5" />
-                      {activePlan.destination}
-                      {activeCountry &&
-                      !activePlan.destination
-                        .toLowerCase()
-                        .includes(activeCountry.toLowerCase())
-                        ? ` (${activeCountry})`
-                        : ''}
-                    </span>
-                    <span aria-hidden="true">·</span>
-                    <span className="inline-flex items-center gap-1 tabular-nums">
-                      <Clock className="w-3.5 h-3.5" />
-                      {activePlan.dailyItinerary.length} Days
-                    </span>
-                    <span aria-hidden="true">·</span>
-                    <span className="inline-flex items-center gap-1 tabular-nums">
-                      <Users className="w-3.5 h-3.5" />
-                      {activeInput?.travelers ?? travelers} Travelers
-                    </span>
-                    <span aria-hidden="true">·</span>
-                    <span>{activeInput?.travelStyle ?? travelStyle}</span>
-                    <span aria-hidden="true">·</span>
-                    <span>{activePlan.language === 'ml' ? 'മലയാളം' : 'English'}</span>
-                  </div>
-
-                  <input
-                    type="text"
-                    value={tripTitle}
-                    onChange={(e) => setTripTitle(e.target.value)}
-                    maxLength={200}
-                    aria-label="Trip title"
-                    className="w-full font-sans text-2xl md:text-3xl font-semibold tracking-[-0.02em] text-safar-navy bg-transparent border-b border-transparent focus:border-safar-navy/30 outline-none pb-1"
-                  />
-
-                  <p className="text-base text-safar-slate leading-relaxed">
-                    {activePlan.tripSummary}
-                  </p>
-                </div>
-
-                <div
-                  data-print-hide="true"
-                  className="flex flex-wrap items-center gap-2.5 shrink-0 lg:max-w-[460px] lg:justify-end"
-                >
-                  <select
-                    aria-label="Trip status"
-                    value={tripStatus}
-                    onChange={(e) => setTripStatus(e.target.value as TripStatus)}
-                    className="rounded-full border border-safar-border bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.04em] text-safar-navy outline-none"
-                  >
-                    <option value="draft">Draft</option>
-                    <option value="planned">Planned</option>
-                    <option value="archived">Archived</option>
-                  </select>
-
-                  <button
-                    type="button"
-                    disabled={isSaving}
-                    onClick={handleSaveOrUpdateTrip}
-                    className="cursor-pointer rounded-full bg-safar-navy px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.04em] text-white transition-all hover:bg-safar-navyHover disabled:opacity-60 whitespace-nowrap"
-                  >
-                    {isSaving
-                      ? 'Saving...'
-                      : editingTripId
-                        ? 'Save Changes'
-                        : 'Save Trip'}
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={isExportingPdf}
-                    onClick={() => void handleDownloadPdf()}
-                    className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-safar-border bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.04em] text-safar-navy hover:bg-safar-skySoft disabled:opacity-60 whitespace-nowrap transition-colors"
-                  >
-                    {isExportingPdf ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Download className="w-3.5 h-3.5 text-safar-orange" />
-                    )}
-                    {isExportingPdf ? 'Exporting PDF...' : 'Download PDF'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setIsShareModalOpen(true)}
-                    className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-safar-border bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.04em] text-safar-navy hover:bg-safar-skySoft whitespace-nowrap transition-colors"
-                  >
-                    <Share2 className="w-3.5 h-3.5 text-safar-orange" />
-                    Share Trip
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handlePrintTrip}
-                    className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-safar-border bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.04em] text-safar-navy hover:bg-safar-skySoft whitespace-nowrap transition-colors"
-                  >
-                    <Printer className="w-3.5 h-3.5 text-safar-orange" />
-                    Print Trip
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('plan')}
-                    className="cursor-pointer rounded-full border border-safar-border bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.04em] text-safar-navy hover:bg-safar-skySoft whitespace-nowrap transition-colors"
-                  >
-                    Edit Inputs
-                  </button>
-                </div>
-              </div>
-
-              <label
-                data-print-hide={tripNotes.trim() ? undefined : 'true'}
-                className="block"
-              >
-                <span className="block text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate mb-2">
-                  Personal Notes
-                </span>
-                <input
-                  type="text"
-                  maxLength={2000}
-                  value={tripNotes}
-                  onChange={(e) => setTripNotes(e.target.value)}
-                  placeholder="Add booking reminders, packing notes, or custom edits..."
-                  className="w-full rounded-xl border border-safar-border bg-white px-4 py-2.5 text-sm text-safar-navy outline-none focus:border-safar-navy"
-                />
-              </label>
-
-              {/* Connected Destination Photo Gallery Strip */}
-              {(destPhotosLoading || destPhotos.length > 0) && (
-                <div
-                  data-print-hide="true"
-                  className="pt-4 border-t border-safar-border space-y-3"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
-                      <Camera className="w-3.5 h-3.5 text-safar-orange" />
-                      Destination Photography · {activePlan.destination}
-                    </span>
-                    {destPhotos.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setPhotoModalTarget({
-                            name: activePlan.destination,
-                            query:
-                              activeInput?.destination?.trim() ||
-                              activePlan.destination,
-                            initialPhotos: destPhotos,
-                          })
-                        }
-                        className="cursor-pointer text-xs font-semibold text-safar-orange hover:underline"
-                      >
-                        View Gallery ({destPhotos.length})
-                      </button>
-                    )}
-                  </div>
-
-                  {destPhotosLoading ? (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      {Array.from({ length: 4 }).map((_, idx) => (
-                        <div
-                          key={idx}
-                          className="aspect-[4/3] rounded-xl animate-pulse bg-safar-sky"
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      {destPhotos.slice(0, 4).map((photo, idx) => (
-                        <button
-                          key={photo.id}
-                          type="button"
-                          onClick={() =>
-                            setPhotoModalTarget({
-                              name: activePlan.destination,
-                              query:
-                                activeInput?.destination?.trim() ||
-                                activePlan.destination,
-                              initialPhotos: destPhotos,
-                              initialIndex: idx,
-                            })
-                          }
-                          className="cursor-pointer group rounded-xl overflow-hidden border border-safar-border text-left"
-                        >
-                          <ResponsivePhoto
-                            photo={photo}
-                            fallbackLabel={photo.title}
-                            aspectClassName="aspect-[4/3]"
-                            sizes="(max-width: 768px) 45vw, 240px"
-                          />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Budget Planner */}
-            <div className="rounded-[28px] border border-safar-border bg-white p-6 md:p-8 space-y-6 shadow-[0_8px_28px_rgba(15,37,68,0.04)] safar-print-card">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-2.5">
-                  <Wallet className="w-5 h-5 text-safar-orange" />
-                  <h3 className="text-xl font-semibold tracking-[-0.02em] text-safar-navy">
-                    Budget Planner ({activePlan.currency})
-                  </h3>
-                </div>
-                <div className="text-left sm:text-right">
-                  <p className="text-xs uppercase tracking-[0.04em] text-safar-slate">
-                    Total Estimated Cost
-                  </p>
-                  <p className="text-2xl font-semibold text-safar-navy tabular-nums">
-                    {formatMoney(activePlan.totalEstimatedBudget, activePlan.currency)}
-                  </p>
-                  {budgetAmount > 0 && (
-                    <p className="text-xs text-safar-slate tabular-nums">
-                      Target budget: {formatMoney(budgetAmount, activePlan.currency)}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {(
-                  [
-                    ['accommodation', 'Accommodation'],
-                    ['food', 'Food & Dining'],
-                    ['transportation', 'Transportation'],
-                    ['activities', 'Activities'],
-                  ] as const
-                ).map(([key, label]) => {
-                  const val = activePlan.budgetBreakdown[key] || 0;
-                  const sharePct =
-                    activePlan.totalEstimatedBudget > 0
-                      ? Math.min(
-                          100,
-                          Math.round((val / activePlan.totalEstimatedBudget) * 100),
-                        )
-                      : 0;
-                  return (
-                    <label
-                      key={key}
-                      className="rounded-2xl border border-safar-border bg-safar-skySoft/55 p-4 flex flex-col gap-2"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
-                          {label}
-                        </span>
-                        <span className="text-[11px] font-medium text-safar-orange tabular-nums">
-                          {sharePct}%
-                        </span>
-                      </div>
-                      <input
-                        type="number"
-                        min={0}
-                        value={val}
-                        onChange={(e) => handleBudgetFieldChange(key, e.target.value)}
-                        className="font-sans text-lg font-semibold text-safar-navy bg-transparent outline-none tabular-nums"
-                      />
-                      <div className="h-1.5 w-full rounded-full bg-safar-sky overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-safar-orange transition-all duration-200"
-                          style={{ width: `${sharePct}%` }}
-                        />
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-
-              <p className="text-xs text-safar-slate">
-                {activePlan.budgetBreakdown.disclaimer}
-              </p>
-            </div>
-
-            {/* Interactive Itinerary Map */}
-            <ItineraryMap
-              plan={activePlan}
-              selectedDay={selectedMapDay}
-              onSelectDay={setSelectedMapDay}
-              selectedStopId={selectedMapStopId}
-              onSelectStop={setSelectedMapStopId}
-              dayTrigger={mapDayTrigger}
-              onJumpToScheduleSlot={(_day, stopId) => {
-                setHighlightedSlotId(stopId);
-                document
-                  .getElementById(stopId)
-                  ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              }}
-            />
-
-            {/* Day-by-Day Itinerary */}
-            <div className="space-y-5">
-              <div className="flex items-center gap-2.5">
-                <Calendar className="w-5 h-5 text-safar-orange" />
-                <h3 className="text-xl font-semibold tracking-[-0.02em] text-safar-navy">
-                  Day-by-Day Schedule
-                </h3>
-              </div>
-
-              <div className="space-y-4">
-                {activePlan.dailyItinerary.map((day) => {
-                  const isDayFocused = selectedMapDay === day.day;
-                  return (
-                    <div
-                      key={day.day}
-                      className={`rounded-[24px] border bg-white p-6 space-y-4 transition-colors shadow-[0_6px_22px_rgba(15,37,68,0.03)] safar-print-card ${
-                        isDayFocused
-                          ? 'border-safar-orange/60 ring-1 ring-safar-orange/25'
-                          : 'border-safar-border'
-                      }`}
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-safar-border">
-                        <button
-                          type="button"
-                          onClick={() => focusDayOnMap(day.day)}
-                          className="cursor-pointer text-left group"
-                        >
-                          <span className="text-xs font-semibold uppercase tracking-[0.04em] text-safar-orange tabular-nums group-hover:underline">
-                            Day {day.day}
-                            {day.date ? ` · ${day.date}` : ''}
-                          </span>
-                          <h4 className="text-lg font-semibold text-safar-navy group-hover:text-safar-orange transition-colors">
-                            {day.theme}
-                          </h4>
-                        </button>
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs text-safar-slate">
-                            Est. transit: {day.estimatedTravelTime}
-                          </span>
-                          <button
-                            type="button"
-                            data-print-hide="true"
-                            onClick={() => focusDayOnMap(day.day)}
-                            className={`cursor-pointer inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.04em] transition-colors whitespace-nowrap ${
-                              isDayFocused
-                                ? 'bg-safar-navy text-white'
-                                : 'border border-safar-border bg-safar-skySoft text-safar-navy hover:bg-safar-sky'
-                            }`}
-                          >
-                            <MapPin
-                              className={`w-3 h-3 ${
-                                isDayFocused ? 'text-safar-orange' : 'text-safar-orange'
-                              }`}
-                            />
-                            Day {day.day} Map
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-3">
-                        {day.schedule.map((slot, idx) => {
-                          const slotStopId = buildScheduleStopId(day.day, idx);
-                          const isHighlighted =
-                            highlightedSlotId === slotStopId ||
-                            selectedMapStopId === slotStopId;
-
-                          return (
-                            <div
-                              key={slotStopId}
-                              id={slotStopId}
-                              className={`grid grid-cols-1 md:grid-cols-[140px_1fr] gap-2 md:gap-6 py-2.5 px-3 -mx-3 rounded-xl border-b border-safar-border/50 last:border-b-0 transition-colors ${
-                                isHighlighted ? 'bg-safar-orangeSoft' : ''
-                              }`}
-                            >
-                              <div className="text-xs font-semibold text-safar-navy tabular-nums">
-                                <div>{slot.time}</div>
-                                {slot.travelTimeFromPrev && (
-                                  <div className="text-safar-slate font-normal mt-0.5">
-                                    {slot.travelTimeFromPrev}
-                                  </div>
-                                )}
-                              </div>
-                              <div className="space-y-1">
-                                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                                  <p className="text-sm font-semibold text-safar-navy">
-                                    {slot.activity}
-                                  </p>
-                                  <div className="flex items-center gap-2.5">
-                                    {slot.estimatedCost > 0 && (
-                                      <span className="text-xs font-medium text-safar-slate tabular-nums">
-                                        ~{formatMoney(slot.estimatedCost, activePlan.currency)}
-                                      </span>
-                                    )}
-                                    {(slot.location || slot.activity) && (
-                                      <button
-                                        type="button"
-                                        data-print-hide="true"
-                                        onClick={() => {
-                                          setMapDayTrigger(null);
-                                          setSelectedMapDay(day.day);
-                                          setSelectedMapStopId(slotStopId);
-                                          setHighlightedSlotId(slotStopId);
-                                          document
-                                            .getElementById('itinerary-map')
-                                            ?.scrollIntoView({
-                                              behavior: 'smooth',
-                                              block: 'start',
-                                            });
-                                        }}
-                                        className="cursor-pointer inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.04em] text-safar-orange hover:underline"
-                                      >
-                                        <MapPin className="w-3 h-3" />
-                                        Map
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-                                <p className="text-xs text-safar-slate">
-                                  {slot.location}
-                                  {slot.visitingHours ? ` · Hours: ${slot.visitingHours}` : ''}
-                                </p>
-                                {slot.notes && (
-                                  <p className="text-xs text-safar-slate leading-relaxed">
-                                    {slot.notes}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Attractions, Stays, Food */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="rounded-[24px] border border-safar-border bg-white p-6 space-y-4 shadow-[0_6px_22px_rgba(15,37,68,0.03)] safar-print-card">
-                <div className="flex items-center gap-2">
-                  <Compass className="w-4 h-4 text-safar-orange" />
-                  <h3 className="text-base font-semibold text-safar-navy">
-                    Key Attractions
-                  </h3>
-                </div>
-                <div className="space-y-5">
-                  {activePlan.attractions.map((item, idx) => {
-                    const attrPhoto = attractionPhotos[item.name] ?? null;
-                    return (
-                      <div key={`${item.name}-${idx}`} className="space-y-2">
-                        {attrPhoto && (
-                          <button
-                            type="button"
-                            data-print-hide="true"
-                            onClick={() =>
-                              setPhotoModalTarget({
-                                name: item.name,
-                                query: `${item.name} ${activePlan.destination}`,
-                                subtitle: `Recommended in ${activePlan.destination}`,
-                                category: 'landmarks',
-                                initialPhotos: [attrPhoto],
-                              })
-                            }
-                            className="cursor-pointer group block w-full rounded-xl overflow-hidden border border-safar-border text-left"
-                          >
-                            <ResponsivePhoto
-                              photo={attrPhoto}
-                              fallbackLabel={item.name}
-                              aspectClassName="aspect-[16/10]"
-                              sizes="(max-width: 1024px) 90vw, 340px"
-                            />
-                          </button>
-                        )}
-                        <div className="space-y-1">
-                          <p className="text-sm font-semibold text-safar-navy">
-                            {item.name}
-                          </p>
-                          <p className="text-xs text-safar-slate">
-                            Best time: {item.bestTimeToVisit} · {item.estimatedDuration}
-                          </p>
-                          <p className="text-xs text-safar-slate leading-relaxed">
-                            {item.description}
-                          </p>
-                          {attrPhoto && (
-                            <p
-                              data-print-hide="true"
-                              className="text-[11px] text-safar-slate/85"
-                            >
-                              Photo by{' '}
-                              <a
-                                href={attrPhoto.attribution.photographerUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="underline hover:text-safar-navy"
-                              >
-                                {attrPhoto.attribution.photographerName}
-                              </a>{' '}
-                              on{' '}
-                              <a
-                                href={attrPhoto.attribution.sourceUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="underline hover:text-safar-navy"
-                              >
-                                {attrPhoto.attribution.sourceName}
-                              </a>
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="rounded-[24px] border border-safar-border bg-white p-6 space-y-4 shadow-[0_6px_22px_rgba(15,37,68,0.03)] safar-print-card">
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-safar-orange" />
-                  <h3 className="text-base font-semibold text-safar-navy">
-                    Stay Suggestions
-                  </h3>
-                </div>
-                <div className="space-y-4">
-                  {activePlan.accommodationSuggestions.map((stay, idx) => (
-                    <div key={`${stay.name}-${idx}`} className="space-y-1">
-                      <p className="text-sm font-semibold text-safar-navy">
-                        {stay.name}
-                      </p>
-                      <p className="text-xs text-safar-slate">
-                        {stay.area} · {stay.tier} · {stay.approximateNightlyRange}
-                      </p>
-                      <p className="text-xs text-safar-slate leading-relaxed">
-                        {stay.notes}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-[24px] border border-safar-border bg-white p-6 space-y-4 shadow-[0_6px_22px_rgba(15,37,68,0.03)] safar-print-card">
-                <div className="flex items-center gap-2">
-                  <Utensils className="w-4 h-4 text-safar-orange" />
-                  <h3 className="text-base font-semibold text-safar-navy">
-                    Food Recommendations
-                  </h3>
-                </div>
-                <div className="space-y-4">
-                  {activePlan.foodRecommendations.map((food, idx) => (
-                    <div key={`${food.dishOrSpot}-${idx}`} className="space-y-1">
-                      <p className="text-sm font-semibold text-safar-navy">
-                        {food.dishOrSpot}
-                      </p>
-                      <p className="text-xs text-safar-slate">
-                        {food.type} · {food.area} · {food.approximateCostRange}
-                      </p>
-                      <p className="text-xs text-safar-slate leading-relaxed">
-                        {food.notes}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Travel Tips & Contextual Follow-up Chat */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="rounded-[24px] border border-safar-border bg-safar-skySoft/55 p-6 space-y-3 safar-print-card">
-                <h3 className="text-base font-semibold text-safar-navy">
-                  Travel Tips
-                </h3>
-                <ul className="space-y-2 text-sm text-safar-slate list-disc pl-5">
-                  {activePlan.travelTips.map((tip, idx) => (
-                    <li key={idx} className="leading-relaxed">
-                      {tip}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div
-                data-print-hide="true"
-                className="rounded-[24px] border border-safar-border bg-white p-6 space-y-4 shadow-[0_6px_22px_rgba(15,37,68,0.03)]"
-              >
-                <h3 className="text-base font-semibold text-safar-navy">
-                  Ask SAFAR AI Follow-Ups (English / മലയാളം)
-                </h3>
-
-                {chatHistory.length > 0 && (
-                  <div className="max-h-[220px] space-y-2.5 overflow-y-auto pr-1">
-                    {chatHistory.map((turn, idx) => (
-                      <div
-                        key={`${turn.role}-${idx}`}
-                        className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
-                          turn.role === 'user'
-                            ? 'bg-safar-sky font-medium text-safar-navy'
-                            : 'border border-safar-border bg-safar-skySoft/45 text-safar-navy'
-                        }`}
-                      >
-                        {turn.content}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {activePlan.suggestedFollowUps.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {activePlan.suggestedFollowUps.map((q) => (
-                      <button
-                        key={q}
-                        type="button"
-                        disabled={followUpLoading}
-                        onClick={() => void handleFollowUp(q)}
-                        className="cursor-pointer rounded-full border border-safar-border bg-safar-skySoft/60 px-3.5 py-1.5 text-xs font-medium text-safar-navy hover:bg-safar-sky disabled:opacity-50 text-left transition-colors"
-                      >
-                        {q}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void handleFollowUp(followUpText);
-                  }}
-                  className="flex gap-2"
-                >
-                  <input
-                    type="text"
-                    value={followUpText}
-                    onChange={(e) => setFollowUpText(e.target.value)}
-                    placeholder="Ask a follow-up question..."
-                    disabled={followUpLoading}
-                    className="flex-1 rounded-full border border-safar-border bg-safar-skySoft/40 px-4 py-2.5 text-sm text-safar-navy outline-none focus:border-safar-navy focus:bg-white"
-                  />
-                  <button
-                    type="submit"
-                    disabled={followUpLoading || !followUpText.trim()}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-safar-navy px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.04em] text-white hover:bg-safar-navyHover disabled:opacity-50 transition-colors"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    {followUpLoading ? 'Sending...' : 'Ask'}
-                  </button>
-                </form>
-              </div>
-            </div>
-          </div>
+          <ItineraryResultsView
+            activePlan={activePlan}
+            activeInput={activeInput}
+            activeCountry={activeCountry}
+            tripTitle={tripTitle}
+            onTripTitleChange={setTripTitle}
+            tripStatus={tripStatus}
+            onTripStatusChange={setTripStatus}
+            tripNotes={tripNotes}
+            onTripNotesChange={setTripNotes}
+            travelers={travelers}
+            travelStyle={travelStyle}
+            budgetAmount={budgetAmount}
+            editingTripId={editingTripId}
+            isSaving={isSaving}
+            isExportingPdf={isExportingPdf}
+            destPhotos={destPhotos}
+            destPhotosLoading={destPhotosLoading}
+            attractionPhotos={attractionPhotos}
+            selectedMapDay={selectedMapDay}
+            onSelectMapDay={setSelectedMapDay}
+            selectedMapStopId={selectedMapStopId}
+            onSelectMapStopId={setSelectedMapStopId}
+            highlightedSlotId={highlightedSlotId}
+            onHighlightSlotId={setHighlightedSlotId}
+            mapDayTrigger={mapDayTrigger}
+            onSetMapDayTrigger={setMapDayTrigger}
+            onFocusDayOnMap={focusDayOnMap}
+            onBudgetFieldChange={handleBudgetFieldChange}
+            onSaveOrUpdateTrip={handleSaveOrUpdateTrip}
+            onDownloadPdf={handleDownloadPdf}
+            onOpenShareModal={() => setIsShareModalOpen(true)}
+            onPrintTrip={handlePrintTrip}
+            onEditTrip={() => {
+              setActiveTab('plan');
+              document
+                .getElementById('planner')
+                ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
+            onPlanAnotherTrip={() => {
+              setEditingTripId(null);
+              setSavedShare(null);
+              setActiveTab('plan');
+              document
+                .getElementById('planner')
+                ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
+            onOpenPhotoModal={(target) => setPhotoModalTarget(target)}
+            chatHistory={chatHistory}
+            followUpText={followUpText}
+            onFollowUpTextChange={setFollowUpText}
+            followUpLoading={followUpLoading}
+            onFollowUp={handleFollowUp}
+            formatMoney={formatMoney}
+          />
         )}
 
         {/* TAB 3: SAVED TRIPS (FIRESTORE) */}
