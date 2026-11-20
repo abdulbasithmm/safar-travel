@@ -37,9 +37,11 @@ const SKY_CLEANUP_REGIONS: PatchRegion[] = [
   { x0: 0.582, y0: 0.162, x1: 0.634, y1: 0.202, mode: 'cloud-blend', feather: 8 },
   { x0: 0.762, y0: 0.378, x1: 0.806, y1: 0.414, mode: 'cloud-blend', feather: 8 },
 
-  // Unified center sky cleanup (headline, subtitle, and baked mockup prompt card)
-  // Interpolates smoothly left-to-right across the natural sky horizon and stops above Taj Mahal spire (y=0.672)
-  { x0: 0.271, y0: 0.268, x1: 0.728, y1: 0.672, mode: 'horizontal', feather: 3 },
+  // Tight patches strictly enclosing baked-in UI text and frosted card shadows.
+  // Card bottom stops at y=0.684, cleanly above Taj Mahal spire tip (y=0.696).
+  { x0: 0.270, y0: 0.274, x1: 0.728, y1: 0.356, mode: 'cloud-blend', feather: 14 },
+  { x0: 0.322, y0: 0.368, x1: 0.676, y1: 0.470, mode: 'cloud-blend', feather: 14 },
+  { x0: 0.281, y0: 0.488, x1: 0.719, y1: 0.681, mode: 'cloud-blend', feather: 6 },
 ];
 
 function smoothstep(edge0: number, edge1: number, x: number): number {
@@ -65,161 +67,195 @@ function applySkyCleanupToCanvas(
   const src = srcImage.data;
   const out = new Uint8ClampedArray(src);
 
-  // Mark every pixel inside any cleanup region so edge sampling never pulls
-  // uncleaned foreground pixels from an adjacent or overlapping region.
-  const masked = new Uint8Array(w * h);
-  const boundsList = SKY_CLEANUP_REGIONS.map((region) => {
-    const xStart = Math.max(2, Math.floor(region.x0 * w));
-    const yStart = Math.max(2, Math.floor(region.y0 * h));
-    const xEnd = Math.min(w - 3, Math.ceil(region.x1 * w));
-    const yEnd = Math.min(h - 3, Math.ceil(region.y1 * h));
-    for (let y = yStart; y <= yEnd; y += 1) {
-      const rowOffset = y * w;
-      for (let x = xStart; x <= xEnd; x += 1) {
-        masked[rowOffset + x] = 1;
-      }
-    }
-    return { region, xStart, yStart, xEnd, yEnd };
-  });
+  // Full-resolution alpha mask: 1.0 strictly across every dirty pixel,
+  // smoothly feathering outward (1.0 -> 0.0) into surrounding clean sky.
+  const blendAlpha = new Float32Array(w * h);
+  const coreMask = new Uint8Array(w * h);
 
-  // Sample a small sky-filtered neighborhood strictly outside the masked area
-  const sampleUnmaskedBand = (
-    cx: number,
-    cy: number,
-    dirX: number,
-    dirY: number,
-  ): [number, number, number] => {
-    let px = Math.max(0, Math.min(w - 1, cx));
-    let py = Math.max(0, Math.min(h - 1, cy));
-    const maxSteps = Math.max(w, h);
-    for (let step = 0; step < maxSteps; step += 1) {
-      if (!masked[py * w + px]) break;
-      const nx = px + dirX;
-      const ny = py + dirY;
-      if (nx < 0 || nx >= w || ny < 0 || ny >= h) break;
-      px = nx;
-      py = ny;
-    }
+  for (const region of SKY_CLEANUP_REGIONS) {
+    const x0 = Math.max(2, Math.floor(region.x0 * w));
+    const y0 = Math.max(2, Math.floor(region.y0 * h));
+    const x1 = Math.min(w - 3, Math.ceil(region.x1 * w));
+    const y1 = Math.min(h - 3, Math.ceil(region.y1 * h));
+    const pad = region.feather ?? 12;
 
-    let rSky = 0;
-    let gSky = 0;
-    let bSky = 0;
-    let skyCount = 0;
-    let rAll = 0;
-    let gAll = 0;
-    let bAll = 0;
-    let allCount = 0;
+    const ox0 = Math.max(1, x0 - pad);
+    const oy0 = Math.max(1, y0 - pad);
+    const ox1 = Math.min(w - 2, x1 + pad);
+    // Keep bottom of central card region strictly above Taj spire
+    const oy1 = Math.min(h - 2, y1 + (region.y1 > 0.67 ? 4 : pad));
 
-    // Average across a small outer strip; prefer bright sky pixels (>= 198 lum)
-    // so nearby landmark finials or corner leaves never bleed into sky regions.
-    for (let along = -10; along <= 10; along += 2) {
-      for (let depth = 1; depth <= 9; depth += 2) {
-        const sx = Math.max(0, Math.min(w - 1, px + dirX * depth + (dirY !== 0 ? along : 0)));
-        const sy = Math.max(0, Math.min(h - 1, py + dirY * depth + (dirX !== 0 ? along : 0)));
-        if (masked[sy * w + sx]) continue;
-        const idx = (sy * w + sx) * 4;
-        const r = out[idx];
-        const g = out[idx + 1];
-        const b = out[idx + 2];
-        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-        rAll += r;
-        gAll += g;
-        bAll += b;
-        allCount += 1;
-        if (lum >= 198) {
-          rSky += r;
-          gSky += g;
-          bSky += b;
-          skyCount += 1;
+    for (let y = oy0; y <= oy1; y += 1) {
+      const dy = y < y0 ? y0 - y : y > y1 ? y - y1 : 0;
+      const maxDy = y > y1 && region.y1 > 0.67 ? 4 : pad;
+      const fy = dy === 0 ? 1 : 1 - smoothstep(0, maxDy, dy);
+      if (fy <= 0) continue;
+
+      const row = y * w;
+      for (let x = ox0; x <= ox1; x += 1) {
+        const dx = x < x0 ? x0 - x : x > x1 ? x - x1 : 0;
+        const fx = dx === 0 ? 1 : 1 - smoothstep(0, pad, dx);
+        const a = Math.min(fx, fy);
+        if (a > blendAlpha[row + x]) {
+          blendAlpha[row + x] = a;
+        }
+        if (dx === 0 && dy === 0) {
+          coreMask[row + x] = 1;
         }
       }
     }
+  }
 
-    if (skyCount > 0) {
-      return [rSky / skyCount, gSky / skyCount, bSky / skyCount];
+  // Downsample 2x for fast, smooth 2D Laplace harmonic membrane inpainting
+  const sw = Math.ceil(w / 2);
+  const sh = Math.ceil(h / 2);
+  const sMask = new Uint8Array(sw * sh);
+  const gridR = new Float32Array(sw * sh);
+  const gridG = new Float32Array(sw * sh);
+  const gridB = new Float32Array(sw * sh);
+
+  for (let sy = 0; sy < sh; sy += 1) {
+    const y = Math.min(h - 1, sy * 2);
+    for (let sx = 0; sx < sw; sx += 1) {
+      const x = Math.min(w - 1, sx * 2);
+      const sIdx = sy * sw + sx;
+      const fIdx = y * w + x;
+      const pIdx = fIdx * 4;
+      sMask[sIdx] =
+        coreMask[fIdx] ||
+        coreMask[Math.min(w - 1, x + 1) + y * w] ||
+        coreMask[x + Math.min(h - 1, y + 1) * w]
+          ? 1
+          : 0;
+      gridR[sIdx] = src[pIdx];
+      gridG[sIdx] = src[pIdx + 1];
+      gridB[sIdx] = src[pIdx + 2];
     }
-    if (allCount > 0) {
-      return [rAll / allCount, gAll / allCount, bAll / allCount];
-    }
-    const fIdx = (py * w + px) * 4;
-    return [out[fIdx], out[fIdx + 1], out[fIdx + 2]];
-  };
+  }
 
-  for (const { region, xStart, yStart, xEnd, yEnd } of boundsList) {
-    const feather = region.feather ?? 14;
-    const rw = Math.max(1, xEnd - xStart);
-    const rh = Math.max(1, yEnd - yStart);
-
-    // Precompute smoothed top/bottom boundary arrays and left/right boundary arrays
-    const topEdge: [number, number, number][] = new Array(rw + 1);
-    const botEdge: [number, number, number][] = new Array(rw + 1);
-    for (let dx = 0; dx <= rw; dx += 1) {
-      const x = xStart + dx;
-      topEdge[dx] = sampleUnmaskedBand(x, yStart - 1, 0, -1);
-      botEdge[dx] = sampleUnmaskedBand(x, yEnd + 1, 0, 1);
-    }
-
-    const leftEdge: [number, number, number][] = new Array(rh + 1);
-    const rightEdge: [number, number, number][] = new Array(rh + 1);
-    for (let dy = 0; dy <= rh; dy += 1) {
-      const y = yStart + dy;
-      leftEdge[dy] = sampleUnmaskedBand(xStart - 1, y, -1, 0);
-      rightEdge[dy] = sampleUnmaskedBand(xEnd + 1, y, 1, 0);
-    }
-
-    for (let dy = 0; dy <= rh; dy += 1) {
-      const y = yStart + dy;
-      const ty = dy / rh;
-      const fy = Math.min(
-        smoothstep(0, feather, dy),
-        smoothstep(0, feather, rh - dy),
-      );
-      const [lr, lg, lb] = leftEdge[dy];
-      const [rr, rg, rb] = rightEdge[dy];
-
-      for (let dx = 0; dx <= rw; dx += 1) {
-        const x = xStart + dx;
-        const tx = dx / rw;
-        const fx = Math.min(
-          smoothstep(0, feather, dx),
-          smoothstep(0, feather, rw - dx),
-        );
-        const alpha = Math.min(fx, fy);
-        if (alpha <= 0) continue;
-
-        const [tr, tg, tb] = topEdge[dx];
-        const [br, bg, bb] = botEdge[dx];
-        const vr = tr * (1 - ty) + br * ty;
-        const vg = tg * (1 - ty) + bg * ty;
-        const vb = tb * (1 - ty) + bb * ty;
-
-        let rFill = vr;
-        let gFill = vg;
-        let bFill = vb;
-
-        if (region.mode === 'horizontal') {
-          rFill = lr * (1 - tx) + rr * tx;
-          gFill = lg * (1 - tx) + rg * tx;
-          bFill = lb * (1 - tx) + rb * tx;
-        } else if (region.mode === 'cloud-blend') {
-          const hr = lr * (1 - tx) + rr * tx;
-          const hg = lg * (1 - tx) + rg * tx;
-          const hb = lb * (1 - tx) + rb * tx;
-          // Smooth inverse-distance weight toward nearest edge
-          const wx = Math.min(tx, 1 - tx) + 0.04;
-          const wy = Math.min(ty, 1 - ty) + 0.04;
-          const vWeight = wx / (wx + wy);
-          const hWeight = 1 - vWeight;
-          rFill = vr * vWeight + hr * hWeight;
-          gFill = vg * vWeight + hg * hWeight;
-          bFill = vb * vWeight + hb * hWeight;
+  // Clamp any dark landmark edge (e.g. pagoda finial / distant ridge) just outside
+  // the mask from bleeding dark pigment into the harmonic sky fill
+  for (let sy = 2; sy < sh - 2; sy += 1) {
+    for (let sx = 2; sx < sw - 2; sx += 1) {
+      const idx = sy * sw + sx;
+      if (sMask[idx]) continue;
+      const touchesMask =
+        sMask[idx - 1] || sMask[idx + 1] || sMask[idx - sw] || sMask[idx + sw];
+      if (!touchesMask) continue;
+      const lum = 0.299 * gridR[idx] + 0.587 * gridG[idx] + 0.114 * gridB[idx];
+      if (lum < 190) {
+        let sumR = 0;
+        let sumG = 0;
+        let sumB = 0;
+        let cnt = 0;
+        for (let dy = -6; dy <= 6; dy += 2) {
+          for (let dx = -6; dx <= 6; dx += 2) {
+            const ny = sy + dy;
+            const nx = sx + dx;
+            if (ny < 0 || ny >= sh || nx < 0 || nx >= sw) continue;
+            const nIdx = ny * sw + nx;
+            if (sMask[nIdx]) continue;
+            const nLum = 0.299 * gridR[nIdx] + 0.587 * gridG[nIdx] + 0.114 * gridB[nIdx];
+            if (nLum >= 195) {
+              sumR += gridR[nIdx];
+              sumG += gridG[nIdx];
+              sumB += gridB[nIdx];
+              cnt += 1;
+            }
+          }
         }
-
-        const idx = (y * w + x) * 4;
-        out[idx] = Math.round(out[idx] * (1 - alpha) + rFill * alpha);
-        out[idx + 1] = Math.round(out[idx + 1] * (1 - alpha) + gFill * alpha);
-        out[idx + 2] = Math.round(out[idx + 2] * (1 - alpha) + bFill * alpha);
+        if (cnt > 0) {
+          gridR[idx] = sumR / cnt;
+          gridG[idx] = sumG / cnt;
+          gridB[idx] = sumB / cnt;
+        }
       }
+    }
+  }
+
+  // Initialize masked pixels with local clean horizontal blend before SOR relaxation
+  for (let sy = 1; sy < sh - 1; sy += 1) {
+    let sx = 1;
+    while (sx < sw - 1) {
+      if (!sMask[sy * sw + sx]) {
+        sx += 1;
+        continue;
+      }
+      const start = sx - 1;
+      while (sx < sw - 1 && sMask[sy * sw + sx]) sx += 1;
+      const end = sx;
+      const lIdx = sy * sw + start;
+      const rIdx = sy * sw + end;
+      const span = Math.max(1, end - start);
+      for (let x = start + 1; x < end; x += 1) {
+        const t = (x - start) / span;
+        const idx = sy * sw + x;
+        gridR[idx] = gridR[lIdx] * (1 - t) + gridR[rIdx] * t;
+        gridG[idx] = gridG[lIdx] * (1 - t) + gridG[rIdx] * t;
+        gridB[idx] = gridB[lIdx] * (1 - t) + gridB[rIdx] * t;
+      }
+    }
+  }
+
+  // Collect masked pixel indices once for tight SOR Laplace relaxation (~12ms)
+  const maskedIndices: number[] = [];
+  for (let sy = 1; sy < sh - 1; sy += 1) {
+    const row = sy * sw;
+    for (let sx = 1; sx < sw - 1; sx += 1) {
+      if (sMask[row + sx]) maskedIndices.push(row + sx);
+    }
+  }
+
+  const omega = 1.72;
+  for (let iter = 0; iter < 140; iter += 1) {
+    for (let i = 0; i < maskedIndices.length; i += 1) {
+      const idx = maskedIndices[i];
+      const avgR = 0.25 * (gridR[idx - 1] + gridR[idx + 1] + gridR[idx - sw] + gridR[idx + sw]);
+      const avgG = 0.25 * (gridG[idx - 1] + gridG[idx + 1] + gridG[idx - sw] + gridG[idx + sw]);
+      const avgB = 0.25 * (gridB[idx - 1] + gridB[idx + 1] + gridB[idx - sw] + gridB[idx + sw]);
+      gridR[idx] += omega * (avgR - gridR[idx]);
+      gridG[idx] += omega * (avgG - gridG[idx]);
+      gridB[idx] += omega * (avgB - gridB[idx]);
+    }
+  }
+
+  // Bilinearly upsample solved harmonic sky + subtle anti-banding dither onto out
+  for (let y = 0; y < h; y += 1) {
+    const syf = Math.min(sh - 1.001, y * 0.5);
+    const sy0 = Math.floor(syf);
+    const wy = syf - sy0;
+    const row = y * w;
+
+    for (let x = 0; x < w; x += 1) {
+      const alpha = blendAlpha[row + x];
+      if (alpha <= 0) continue;
+
+      const sxf = Math.min(sw - 1.001, x * 0.5);
+      const sx0 = Math.floor(sxf);
+      const wx = sxf - sx0;
+
+      const i00 = sy0 * sw + sx0;
+      const i10 = i00 + 1;
+      const i01 = i00 + sw;
+      const i11 = i01 + 1;
+
+      const w00 = (1 - wx) * (1 - wy);
+      const w10 = wx * (1 - wy);
+      const w01 = (1 - wx) * wy;
+      const w11 = wx * wy;
+
+      // Deterministic lightweight sky micro-grain to eliminate flat banding
+      const hash = ((x * 73856093) ^ (y * 19349663)) & 255;
+      const grain = (hash / 255 - 0.5) * 1.4;
+
+      const fillR = gridR[i00] * w00 + gridR[i10] * w10 + gridR[i01] * w01 + gridR[i11] * w11 + grain;
+      const fillG = gridG[i00] * w00 + gridG[i10] * w10 + gridG[i01] * w01 + gridG[i11] * w11 + grain;
+      const fillB = gridB[i00] * w00 + gridB[i10] * w10 + gridB[i01] * w01 + gridB[i11] * w11 + grain;
+
+      const pIdx = (row + x) * 4;
+      out[pIdx] = Math.max(0, Math.min(255, Math.round(out[pIdx] * (1 - alpha) + fillR * alpha)));
+      out[pIdx + 1] = Math.max(0, Math.min(255, Math.round(out[pIdx + 1] * (1 - alpha) + fillG * alpha)));
+      out[pIdx + 2] = Math.max(0, Math.min(255, Math.round(out[pIdx + 2] * (1 - alpha) + fillB * alpha)));
     }
   }
 
@@ -434,15 +470,6 @@ export default function SafarHeroBackground() {
           </g>
         </svg>
       </div>
-
-      {/* Gentle top atmospheric contrast veil for navbar & headline legibility */}
-      <div
-        className="absolute inset-x-0 top-0 h-[48%]"
-        style={{
-          background:
-            'linear-gradient(180deg, rgba(226,243,255,0.42) 0%, rgba(255,255,255,0.22) 48%, rgba(255,255,255,0) 100%)',
-        }}
-      />
     </div>
   );
 }

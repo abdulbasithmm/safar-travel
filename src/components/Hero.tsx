@@ -95,10 +95,10 @@ export default function Hero({ onPlanRequest, onOpenTrips }: HeroProps) {
         </nav>
 
         <div className="flex-1 flex flex-col items-center justify-center px-6 pt-0 pb-[90px] max-md:pb-[76px] text-center">
-          <h1 className="font-sans text-[clamp(40px,6vw,68px)] font-semibold text-wandor-text leading-[1.06] tracking-[-0.04em] max-w-[820px] mb-5 drop-shadow-[0_2px_14px_rgba(255,255,255,0.85)]">
+          <h1 className="font-sans text-[clamp(40px,6vw,68px)] font-semibold text-wandor-text leading-[1.06] tracking-[-0.04em] max-w-[820px] mb-5">
             Where will you go next?
           </h1>
-          <p className="font-sans text-xl max-md:text-[17px] font-medium text-[#4a4a4a] leading-relaxed max-w-[540px] drop-shadow-[0_1px_12px_rgba(255,255,255,0.9)]">
+          <p className="font-sans text-xl max-md:text-[17px] font-medium text-[#4a4a4a] leading-relaxed max-w-[540px]">
             Your Journey, Your Story. Tell Safar where you&apos;re going and what
             you love — we&apos;ll create a personalized itinerary for you.
           </p>
