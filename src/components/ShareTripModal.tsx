@@ -232,7 +232,7 @@ export default function ShareTripModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-xs p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-safar-navy/60 backdrop-blur-xs p-4"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -241,16 +241,16 @@ export default function ShareTripModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="share-trip-modal-title"
-        className="w-full max-w-xl rounded-[28px] border border-black/10 bg-white shadow-2xl overflow-hidden max-h-[92vh] flex flex-col"
+        className="w-full max-w-xl rounded-[28px] border border-safar-border bg-white shadow-2xl overflow-hidden max-h-[92vh] flex flex-col text-safar-navy"
       >
-        <div className="px-6 py-5 border-b border-black/10 flex items-start justify-between gap-4">
+        <div className="px-6 py-5 border-b border-safar-border bg-safar-skySoft/70 flex items-start justify-between gap-4">
           <div className="space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-wandor-prompt">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-safar-orange">
               SAFAR · Share Itinerary
             </p>
             <h2
               id="share-trip-modal-title"
-              className="font-sans text-xl font-medium tracking-[-0.02em] text-wandor-text"
+              className="font-sans text-xl font-semibold tracking-[-0.02em] text-safar-navy"
             >
               {displayTitle}
             </h2>
@@ -259,7 +259,7 @@ export default function ShareTripModal({
             type="button"
             onClick={onClose}
             aria-label="Close share dialog"
-            className="cursor-pointer rounded-full p-2 text-wandor-muted hover:bg-black/5 hover:text-wandor-text transition-colors"
+            className="cursor-pointer rounded-full p-2 text-safar-slate hover:bg-safar-sky hover:text-safar-navy transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -276,39 +276,39 @@ export default function ShareTripModal({
           )}
 
           {statusMessage && (
-            <div className="rounded-2xl border border-black/10 bg-black/[0.03] px-4 py-3 text-xs text-wandor-text">
+            <div className="rounded-2xl border border-safar-border bg-safar-skySoft px-4 py-3 text-xs font-medium text-safar-navy">
               {statusMessage}
             </div>
           )}
 
           {/* Public Link Creation & Management */}
-          <div className="rounded-2xl border border-black/10 p-5 space-y-4">
+          <div className="rounded-2xl border border-safar-border bg-white p-5 space-y-4">
             <div className="flex items-start gap-3">
-              <Globe className="w-4 h-4 text-wandor-prompt mt-0.5 shrink-0" />
+              <Globe className="w-4 h-4 text-safar-orange mt-0.5 shrink-0" />
               <div className="space-y-1">
-                <h3 className="text-sm font-semibold text-wandor-text">
+                <h3 className="text-sm font-semibold text-safar-navy">
                   Public Share Link
                 </h3>
-                <p className="text-xs text-wandor-muted leading-relaxed">
+                <p className="text-xs text-safar-slate leading-relaxed">
                   Create a dedicated read-only SAFAR link stored securely in Firestore. You can update or revoke access anytime.
                 </p>
               </div>
             </div>
 
-            <div className="flex items-start gap-2.5 rounded-xl bg-black/[0.025] px-3.5 py-2.5 text-[11px] text-wandor-muted">
-              <ShieldCheck className="w-4 h-4 text-wandor-prompt shrink-0 mt-0.5" />
+            <div className="flex items-start gap-2.5 rounded-xl bg-safar-skySoft px-3.5 py-2.5 text-[11px] text-safar-slate">
+              <ShieldCheck className="w-4 h-4 text-safar-orange shrink-0 mt-0.5" />
               <span>
                 Your email, profile photo, account name, and raw prompts are never included in shared links.
               </span>
             </div>
 
             {notes.trim().length > 0 && (
-              <label className="flex items-center gap-2.5 cursor-pointer text-xs text-wandor-text select-none">
+              <label className="flex items-center gap-2.5 cursor-pointer text-xs text-safar-navy select-none">
                 <input
                   type="checkbox"
                   checked={includeNotes}
                   onChange={(e) => setIncludeNotes(e.target.checked)}
-                  className="h-4 w-4 rounded border-black/25 accent-[#905831]"
+                  className="h-4 w-4 rounded border-safar-border accent-[#F97316]"
                 />
                 <span>Include my personal notes in the public shared link</span>
               </label>
@@ -323,12 +323,12 @@ export default function ShareTripModal({
                     value={activeShareUrl}
                     aria-label="Public share link URL"
                     onFocus={(e) => e.currentTarget.select()}
-                    className="flex-1 rounded-full border border-black/15 bg-black/[0.02] px-4 py-2 text-xs text-wandor-text outline-none"
+                    className="flex-1 rounded-full border border-safar-border bg-safar-skySoft/60 px-4 py-2 text-xs text-safar-navy outline-none"
                   />
                   <button
                     type="button"
                     onClick={() => void handleCopyLink()}
-                    className="cursor-pointer inline-flex items-center justify-center gap-1.5 rounded-full bg-wandor-dark px-4 py-2 text-xs font-medium uppercase tracking-[0.04em] text-[#fafafa] hover:bg-[#333] shrink-0"
+                    className="cursor-pointer inline-flex items-center justify-center gap-1.5 rounded-full bg-safar-navy px-4 py-2 text-xs font-semibold uppercase tracking-[0.04em] text-white hover:bg-safar-navyHover shrink-0 transition-colors"
                   >
                     {copied ? (
                       <>
@@ -349,12 +349,12 @@ export default function ShareTripModal({
                     type="button"
                     disabled={isPublishing || isRevoking}
                     onClick={() => void handlePublishOrUpdateShare()}
-                    className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-black/15 bg-white px-3.5 py-2 text-[11px] font-medium uppercase tracking-[0.04em] text-wandor-text hover:bg-black/5 disabled:opacity-50"
+                    className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-safar-border bg-white px-3.5 py-2 text-[11px] font-semibold uppercase tracking-[0.04em] text-safar-navy hover:bg-safar-skySoft disabled:opacity-50 transition-colors"
                   >
                     {isPublishing ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     ) : (
-                      <RefreshCw className="w-3.5 h-3.5" />
+                      <RefreshCw className="w-3.5 h-3.5 text-safar-orange" />
                     )}
                     {isPublishing ? 'Updating...' : 'Update Shared Copy'}
                   </button>
@@ -363,7 +363,7 @@ export default function ShareTripModal({
                     type="button"
                     disabled={isRevoking || isPublishing}
                     onClick={() => void handleRevokeShare()}
-                    className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-white px-3.5 py-2 text-[11px] font-medium uppercase tracking-[0.04em] text-red-700 hover:bg-red-50 disabled:opacity-50"
+                    className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-white px-3.5 py-2 text-[11px] font-semibold uppercase tracking-[0.04em] text-red-700 hover:bg-red-50 disabled:opacity-50 transition-colors"
                   >
                     {isRevoking ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -377,7 +377,7 @@ export default function ShareTripModal({
             ) : (
               <div className="space-y-3">
                 {savedShare && !savedShare.isPublic && (
-                  <p className="text-xs text-wandor-muted">
+                  <p className="text-xs text-safar-slate">
                     Public access is currently disabled for this trip. Re-enable to restore the share URL.
                   </p>
                 )}
@@ -385,12 +385,12 @@ export default function ShareTripModal({
                   type="button"
                   disabled={isPublishing}
                   onClick={() => void handlePublishOrUpdateShare()}
-                  className="cursor-pointer inline-flex items-center gap-2 rounded-full bg-wandor-dark px-5 py-2.5 text-xs font-medium uppercase tracking-[0.04em] text-[#fafafa] hover:bg-[#333] disabled:opacity-60"
+                  className="cursor-pointer inline-flex items-center gap-2 rounded-full bg-safar-navy px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.04em] text-white hover:bg-safar-navyHover disabled:opacity-60 transition-colors"
                 >
                   {isPublishing ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   ) : (
-                    <Globe className="w-3.5 h-3.5" />
+                    <Globe className="w-3.5 h-3.5 text-safar-orange" />
                   )}
                   {isPublishing
                     ? 'Creating Link...'
@@ -405,10 +405,10 @@ export default function ShareTripModal({
           {/* Direct Sharing Channels */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-wandor-muted">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-safar-slate">
                 Send Summary Directly
               </h3>
-              <span className="text-[11px] text-wandor-muted">
+              <span className="text-[11px] text-safar-slate">
                 {activeShareUrl ? 'Includes your public link' : 'Sends itinerary highlights'}
               </span>
             </div>
@@ -418,9 +418,9 @@ export default function ShareTripModal({
                 <button
                   type="button"
                   onClick={() => void handleNativeWebShare()}
-                  className="cursor-pointer inline-flex items-center gap-2 rounded-full border border-black/15 bg-white px-4 py-2.5 text-xs font-medium uppercase tracking-[0.04em] text-wandor-text hover:bg-black/5"
+                  className="cursor-pointer inline-flex items-center gap-2 rounded-full border border-safar-border bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.04em] text-safar-navy hover:bg-safar-skySoft transition-colors"
                 >
-                  <Share2 className="w-3.5 h-3.5 text-wandor-prompt" />
+                  <Share2 className="w-3.5 h-3.5 text-safar-orange" />
                   Share via Device
                 </button>
               )}
@@ -429,17 +429,17 @@ export default function ShareTripModal({
                 href={whatsappUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-full border border-black/15 bg-white px-4 py-2.5 text-xs font-medium uppercase tracking-[0.04em] text-wandor-text hover:bg-black/5"
+                className="inline-flex items-center gap-2 rounded-full border border-safar-border bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.04em] text-safar-navy hover:bg-safar-skySoft transition-colors"
               >
-                <MessageCircle className="w-3.5 h-3.5 text-wandor-prompt" />
+                <MessageCircle className="w-3.5 h-3.5 text-safar-orange" />
                 WhatsApp
               </a>
 
               <a
                 href={emailUrl}
-                className="inline-flex items-center gap-2 rounded-full border border-black/15 bg-white px-4 py-2.5 text-xs font-medium uppercase tracking-[0.04em] text-wandor-text hover:bg-black/5"
+                className="inline-flex items-center gap-2 rounded-full border border-safar-border bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.04em] text-safar-navy hover:bg-safar-skySoft transition-colors"
               >
-                <Mail className="w-3.5 h-3.5 text-wandor-prompt" />
+                <Mail className="w-3.5 h-3.5 text-safar-orange" />
                 Email
               </a>
             </div>

@@ -33,19 +33,19 @@ export default function ResponsivePhoto({
 
   return (
     <div
-      className={`relative w-full overflow-hidden bg-black/[0.04] ${aspectClassName} ${className}`}
+      className={`relative w-full overflow-hidden bg-safar-skySoft ${aspectClassName} ${className}`}
     >
       {!showFallback && !loaded && (
         <div
           aria-hidden="true"
-          className="absolute inset-0 animate-pulse bg-gradient-to-br from-black/[0.06] via-black/[0.03] to-black/[0.07]"
+          className="absolute inset-0 animate-pulse bg-gradient-to-br from-safar-sky via-safar-skySoft to-safar-skyMid"
         />
       )}
 
       {showFallback ? (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 text-center bg-gradient-to-br from-black/[0.04] to-black/[0.08]">
-          <CameraOff className="w-5 h-5 text-wandor-muted" aria-hidden="true" />
-          <span className="text-xs font-medium text-wandor-muted line-clamp-2">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 text-center bg-gradient-to-br from-safar-skySoft to-safar-sky">
+          <CameraOff className="w-5 h-5 text-safar-slate" aria-hidden="true" />
+          <span className="text-xs font-medium text-safar-slate line-clamp-2">
             {fallbackLabel}
           </span>
         </div>

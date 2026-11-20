@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import DestinationGallery from '@/components/DestinationGallery';
 import Footer from '@/components/Footer';
 import Hero from '@/components/Hero';
+import PricingFaqsSection from '@/components/PricingFaqsSection';
 import SharedTripView from '@/components/SharedTripView';
 import TripPlanner from '@/components/TripPlanner';
 import type { HeroTriggerPayload } from '@/components/TripPlanner';
@@ -97,6 +98,16 @@ export default function App() {
                   mode: 'plan',
                   destination: destinationName,
                 });
+                scrollToPlanner();
+              }}
+            />
+            <PricingFaqsSection
+              onPlanClick={() => {
+                setHeroTrigger({ id: Date.now(), prompt: '', mode: 'plan' });
+                scrollToPlanner();
+              }}
+              onTripsClick={() => {
+                setHeroTrigger({ id: Date.now(), prompt: '', mode: 'trips' });
                 scrollToPlanner();
               }}
             />

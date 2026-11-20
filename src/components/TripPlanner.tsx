@@ -9,10 +9,13 @@ import {
   Loader2,
   MapPin,
   Pencil,
+  Plus,
   Printer,
   RefreshCw,
   Send,
+  Settings,
   Share2,
+  Sparkles,
   Trash2,
   Users,
   Utensils,
@@ -23,6 +26,10 @@ import DestinationDetailModal from '@/components/DestinationDetailModal';
 import type { DestinationDetailTarget } from '@/components/DestinationDetailModal';
 import ItineraryMap, { buildScheduleStopId } from '@/components/ItineraryMap';
 import type { DayMapTrigger } from '@/components/ItineraryMap';
+import ProfileSettingsPanel, {
+  DEFAULT_PLANNER_PREFERENCES,
+} from '@/components/ProfileSettingsPanel';
+import type { PlannerPreferences } from '@/components/ProfileSettingsPanel';
 import ResponsivePhoto from '@/components/ResponsivePhoto';
 import ShareTripModal from '@/components/ShareTripModal';
 import { AIClientError, sendAiChatMessage } from '@/services/aiService';
@@ -65,12 +72,54 @@ interface TripPlannerProps {
   heroTrigger: HeroTriggerPayload | null;
 }
 
-type PlannerTab = 'plan' | 'itinerary' | 'trips';
+type PlannerTab = 'plan' | 'itinerary' | 'trips' | 'profile';
 
 interface PlannerErrorState {
   category: 'auth' | 'ai' | 'save' | 'validation' | 'export';
   message: string;
   retryAction?: 'generate' | 'save';
+}
+
+function getPreferencesStorageKey(uid?: string | null): string {
+  return `safar_planner_prefs_${uid || 'guest'}`;
+}
+
+function loadStoredPreferences(uid?: string | null): PlannerPreferences {
+  if (typeof window === 'undefined') return DEFAULT_PLANNER_PREFERENCES;
+  try {
+    const raw = window.localStorage.getItem(getPreferencesStorageKey(uid));
+    if (!raw) return DEFAULT_PLANNER_PREFERENCES;
+    const parsed = JSON.parse(raw) as Partial<PlannerPreferences>;
+    return {
+      startingLocation:
+        typeof parsed.startingLocation === 'string' && parsed.startingLocation.trim()
+          ? parsed.startingLocation.trim().slice(0, 200)
+          : DEFAULT_PLANNER_PREFERENCES.startingLocation,
+      currency:
+        parsed.currency === 'USD' || parsed.currency === 'EUR' || parsed.currency === 'INR'
+          ? parsed.currency
+          : DEFAULT_PLANNER_PREFERENCES.currency,
+      language:
+        parsed.language === 'en' || parsed.language === 'ml' || parsed.language === 'auto'
+          ? parsed.language
+          : DEFAULT_PLANNER_PREFERENCES.language,
+      travelStyle:
+        parsed.travelStyle === 'family' ||
+        parsed.travelStyle === 'solo' ||
+        parsed.travelStyle === 'couple' ||
+        parsed.travelStyle === 'adventure' ||
+        parsed.travelStyle === 'budget' ||
+        parsed.travelStyle === 'luxury'
+          ? parsed.travelStyle
+          : DEFAULT_PLANNER_PREFERENCES.travelStyle,
+      travelers:
+        typeof parsed.travelers === 'number' && parsed.travelers >= 1 && parsed.travelers <= 30
+          ? Math.round(parsed.travelers)
+          : DEFAULT_PLANNER_PREFERENCES.travelers,
+    };
+  } catch {
+    return DEFAULT_PLANNER_PREFERENCES;
+  }
 }
 
 const TRAVEL_STYLES: Array<{ id: TravelStyle; label: string }> = [
@@ -167,6 +216,13 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
   const [savedTrips, setSavedTrips] = useState<TripRecord[]>([]);
   const [tripsLoading, setTripsLoading] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [tripStatusFilter, setTripStatusFilter] = useState<'all' | TripStatus>('all');
+  const [tripSearchFilter, setTripSearchFilter] = useState('');
+
+  // Traveler planner defaults (persisted locally per user)
+  const [preferences, setPreferences] = useState<PlannerPreferences>(() =>
+    loadStoredPreferences(null),
+  );
 
   // Follow-up AI chat state
   const [chatHistory, setChatHistory] = useState<ChatTurn[]>([]);
@@ -208,6 +264,41 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
     document
       .getElementById('itinerary-map')
       ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  // Load stored planner defaults when signed-in user changes (without overwriting active edited trip)
+  useEffect(() => {
+    if (!authReady) return;
+    const loaded = loadStoredPreferences(user?.uid);
+    setPreferences(loaded);
+    if (!editingTripId) {
+      setStartingLocation(loaded.startingLocation);
+      setCurrency(loaded.currency);
+      setLanguage(loaded.language);
+      setTravelStyle(loaded.travelStyle);
+      setTravelers(loaded.travelers);
+    }
+  }, [authReady, user?.uid, editingTripId]);
+
+  const handleSavePreferences = (next: PlannerPreferences) => {
+    setPreferences(next);
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem(
+          getPreferencesStorageKey(user?.uid),
+          JSON.stringify(next),
+        );
+      } catch {
+        // Ignore storage quota issues
+      }
+    }
+    if (!editingTripId) {
+      setStartingLocation(next.startingLocation);
+      setCurrency(next.currency);
+      setLanguage(next.language);
+      setTravelStyle(next.travelStyle);
+      setTravelers(next.travelers);
+    }
   };
 
   // Sync Firestore trips for signed-in user
@@ -845,22 +936,37 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
     }
   };
 
+  const filteredSavedTrips = useMemo(() => {
+    const q = tripSearchFilter.trim().toLowerCase();
+    return savedTrips.filter((trip) => {
+      if (tripStatusFilter !== 'all' && trip.status !== tripStatusFilter) {
+        return false;
+      }
+      if (!q) return true;
+      return (
+        trip.title.toLowerCase().includes(q) ||
+        trip.destination.toLowerCase().includes(q) ||
+        trip.tripSummary.toLowerCase().includes(q)
+      );
+    });
+  }, [savedTrips, tripStatusFilter, tripSearchFilter]);
+
   return (
     <section
       id="planner"
-      className="w-full bg-white text-wandor-text border-t border-black/10"
+      className="w-full bg-white text-safar-navy border-t border-safar-border"
     >
       <div className="max-w-[1200px] mx-auto px-6 py-16 md:py-20 safar-print-container">
         {/* Section Header + Segmented Navigation */}
         <div
           data-print-hide="true"
-          className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between pb-8 border-b border-black/10"
+          className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between pb-8 border-b border-safar-border"
         >
           <div>
-            <p className="font-sans text-xs font-semibold uppercase tracking-[0.08em] text-wandor-prompt mb-2">
+            <p className="font-sans text-xs font-semibold uppercase tracking-[0.08em] text-safar-orange mb-2">
               SAFAR Trip Studio · سفر
             </p>
-            <h2 className="font-sans text-[clamp(28px,3.6vw,42px)] font-medium tracking-[-0.03em] text-wandor-text leading-tight">
+            <h2 className="font-sans text-[clamp(28px,3.6vw,42px)] font-semibold tracking-[-0.03em] text-safar-navy leading-tight">
               Plan, budget &amp; save your journey
             </h2>
           </div>
@@ -868,17 +974,17 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
           <div
             role="tablist"
             aria-label="Trip planner views"
-            className="inline-flex flex-wrap sm:flex-nowrap items-center gap-1 max-w-full rounded-[20px] sm:rounded-full bg-black/[0.04] p-1 self-start md:self-auto"
+            className="inline-flex flex-wrap sm:flex-nowrap items-center gap-1 max-w-full rounded-[22px] sm:rounded-full bg-safar-sky border border-safar-border p-1.5 self-start lg:self-auto"
           >
             <button
               type="button"
               role="tab"
               aria-selected={activeTab === 'plan'}
               onClick={() => setActiveTab('plan')}
-              className={`cursor-pointer rounded-full px-3 sm:px-4 py-2 font-sans text-[11px] sm:text-xs font-medium uppercase tracking-[0.04em] transition-colors whitespace-nowrap ${
+              className={`cursor-pointer rounded-full px-3.5 sm:px-4 py-2 font-sans text-[11px] sm:text-xs font-semibold uppercase tracking-[0.04em] transition-colors whitespace-nowrap shrink-0 ${
                 activeTab === 'plan'
-                  ? 'bg-wandor-dark text-[#fafafa]'
-                  : 'bg-transparent text-wandor-text hover:opacity-65'
+                  ? 'bg-safar-navy text-white shadow-xs'
+                  : 'bg-transparent text-safar-navy hover:bg-white/70'
               }`}
             >
               Plan Trip
@@ -889,10 +995,10 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
               aria-selected={activeTab === 'itinerary'}
               disabled={!activePlan}
               onClick={() => activePlan && setActiveTab('itinerary')}
-              className={`cursor-pointer rounded-full px-3 sm:px-4 py-2 font-sans text-[11px] sm:text-xs font-medium uppercase tracking-[0.04em] transition-colors whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed ${
+              className={`cursor-pointer rounded-full px-3.5 sm:px-4 py-2 font-sans text-[11px] sm:text-xs font-semibold uppercase tracking-[0.04em] transition-colors whitespace-nowrap shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${
                 activeTab === 'itinerary'
-                  ? 'bg-wandor-dark text-[#fafafa]'
-                  : 'bg-transparent text-wandor-text hover:opacity-65'
+                  ? 'bg-safar-navy text-white shadow-xs'
+                  : 'bg-transparent text-safar-navy hover:bg-white/70'
               }`}
             >
               Itinerary &amp; Budget
@@ -902,13 +1008,27 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
               role="tab"
               aria-selected={activeTab === 'trips'}
               onClick={() => setActiveTab('trips')}
-              className={`cursor-pointer rounded-full px-3 sm:px-4 py-2 font-sans text-[11px] sm:text-xs font-medium uppercase tracking-[0.04em] transition-colors whitespace-nowrap ${
+              className={`cursor-pointer rounded-full px-3.5 sm:px-4 py-2 font-sans text-[11px] sm:text-xs font-semibold uppercase tracking-[0.04em] transition-colors whitespace-nowrap shrink-0 ${
                 activeTab === 'trips'
-                  ? 'bg-wandor-dark text-[#fafafa]'
-                  : 'bg-transparent text-wandor-text hover:opacity-65'
+                  ? 'bg-safar-navy text-white shadow-xs'
+                  : 'bg-transparent text-safar-navy hover:bg-white/70'
               }`}
             >
               My Trips ({savedTrips.length})
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'profile'}
+              onClick={() => setActiveTab('profile')}
+              className={`cursor-pointer inline-flex items-center gap-1.5 rounded-full px-3.5 sm:px-4 py-2 font-sans text-[11px] sm:text-xs font-semibold uppercase tracking-[0.04em] transition-colors whitespace-nowrap shrink-0 ${
+                activeTab === 'profile'
+                  ? 'bg-safar-navy text-white shadow-xs'
+                  : 'bg-transparent text-safar-navy hover:bg-white/70'
+              }`}
+            >
+              <Settings className="w-3.5 h-3.5 text-safar-orange" aria-hidden="true" />
+              Profile &amp; Settings
             </button>
           </div>
         </div>
@@ -918,7 +1038,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
           <div
             role="alert"
             data-print-hide="true"
-            className="mt-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-red-200 bg-red-50/80 px-5 py-4 text-sm text-red-800"
+            className="mt-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-red-200 bg-red-50/85 px-5 py-4 text-sm text-red-800"
           >
             <span>
               <strong className="font-semibold">
@@ -969,13 +1089,13 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
           <div
             role="status"
             data-print-hide="true"
-            className="mt-6 flex items-center justify-between gap-4 rounded-2xl border border-black/10 bg-black/[0.03] px-5 py-3.5 text-sm text-wandor-text"
+            className="mt-6 flex items-center justify-between gap-4 rounded-2xl border border-safar-border bg-safar-skySoft px-5 py-3.5 text-sm font-medium text-safar-navy"
           >
             <span>{statusMsg}</span>
             <button
               type="button"
               onClick={() => setStatusMsg(null)}
-              className="text-xs font-medium uppercase tracking-[0.04em] text-wandor-muted hover:text-wandor-text"
+              className="text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate hover:text-safar-navy"
             >
               Dismiss
             </button>
@@ -984,267 +1104,288 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
 
         {/* TAB 1: PLAN TRIP FORM */}
         {activeTab === 'plan' && (
-          <form onSubmit={handleGenerateItinerary} className="mt-8 space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-              <label className="flex flex-col gap-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.04em] text-wandor-muted">
-                  Destination
-                </span>
-                <input
-                  type="text"
-                  required
-                  maxLength={200}
-                  value={destination}
-                  onChange={(e) => setDestination(e.target.value)}
-                  placeholder="e.g., Munnar, Kerala"
-                  className="rounded-2xl border border-black/15 bg-white px-4 py-3 text-sm text-wandor-text outline-none focus:border-black"
-                />
-              </label>
+          <form
+            onSubmit={handleGenerateItinerary}
+            className="mt-8 rounded-[28px] border border-safar-border bg-safar-skySoft/75 p-5 sm:p-7 md:p-8 space-y-6 shadow-[0_10px_32px_rgba(15,37,68,0.04)]"
+          >
+            {/* Route & Dates */}
+            <div className="rounded-2xl border border-safar-border bg-white p-5 sm:p-6 space-y-4">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-safar-orange">
+                <MapPin className="w-3.5 h-3.5" aria-hidden="true" />
+                Destination &amp; Travel Dates
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+                <label className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
+                    Destination
+                  </span>
+                  <input
+                    type="text"
+                    required
+                    maxLength={200}
+                    value={destination}
+                    onChange={(e) => setDestination(e.target.value)}
+                    placeholder="e.g., Munnar, Kerala"
+                    className="rounded-xl border border-safar-border bg-safar-skySoft/40 px-4 py-3 text-sm text-safar-navy outline-none transition-colors focus:border-safar-navy focus:bg-white"
+                  />
+                </label>
 
-              <label className="flex flex-col gap-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.04em] text-wandor-muted">
-                  Starting Location
-                </span>
-                <input
-                  type="text"
-                  maxLength={200}
-                  value={startingLocation}
-                  onChange={(e) => setStartingLocation(e.target.value)}
-                  placeholder="e.g., Kochi"
-                  className="rounded-2xl border border-black/15 bg-white px-4 py-3 text-sm text-wandor-text outline-none focus:border-black"
-                />
-              </label>
+                <label className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
+                    Starting Location
+                  </span>
+                  <input
+                    type="text"
+                    maxLength={200}
+                    value={startingLocation}
+                    onChange={(e) => setStartingLocation(e.target.value)}
+                    placeholder="e.g., Kochi"
+                    className="rounded-xl border border-safar-border bg-safar-skySoft/40 px-4 py-3 text-sm text-safar-navy outline-none transition-colors focus:border-safar-navy focus:bg-white"
+                  />
+                </label>
 
-              <label className="flex flex-col gap-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.04em] text-wandor-muted">
-                  Departure Date
-                </span>
-                <input
-                  type="date"
-                  value={departureDate}
-                  onChange={(e) => setDepartureDate(e.target.value)}
-                  className="rounded-2xl border border-black/15 bg-white px-4 py-3 text-sm text-wandor-text outline-none focus:border-black tabular-nums"
-                />
-              </label>
+                <label className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
+                    Departure Date
+                  </span>
+                  <input
+                    type="date"
+                    value={departureDate}
+                    onChange={(e) => setDepartureDate(e.target.value)}
+                    className="rounded-xl border border-safar-border bg-safar-skySoft/40 px-4 py-3 text-sm text-safar-navy outline-none transition-colors focus:border-safar-navy focus:bg-white tabular-nums"
+                  />
+                </label>
 
-              <label className="flex flex-col gap-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.04em] text-wandor-muted">
-                  Return Date
-                </span>
-                <input
-                  type="date"
-                  value={returnDate}
-                  onChange={(e) => setReturnDate(e.target.value)}
-                  className="rounded-2xl border border-black/15 bg-white px-4 py-3 text-sm text-wandor-text outline-none focus:border-black tabular-nums"
-                />
-              </label>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
-              <label className="flex flex-col gap-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.04em] text-wandor-muted">
-                  Travelers
-                </span>
-                <input
-                  type="number"
-                  min={1}
-                  max={30}
-                  value={travelers}
-                  onChange={(e) => setTravelers(Number(e.target.value))}
-                  className="rounded-2xl border border-black/15 bg-white px-4 py-3 text-sm text-wandor-text outline-none focus:border-black tabular-nums"
-                />
-              </label>
-
-              <label className="flex flex-col gap-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.04em] text-wandor-muted">
-                  Duration (Days)
-                </span>
-                <input
-                  type="number"
-                  min={1}
-                  max={30}
-                  value={durationDays}
-                  onChange={(e) => setDurationDays(Number(e.target.value))}
-                  className="rounded-2xl border border-black/15 bg-white px-4 py-3 text-sm text-wandor-text outline-none focus:border-black tabular-nums"
-                />
-              </label>
-
-              <label className="flex flex-col gap-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.04em] text-wandor-muted">
-                  Target Budget
-                </span>
-                <input
-                  type="number"
-                  min={0}
-                  step="100"
-                  value={budgetAmount}
-                  onChange={(e) => setBudgetAmount(Number(e.target.value))}
-                  className="rounded-2xl border border-black/15 bg-white px-4 py-3 text-sm text-wandor-text outline-none focus:border-black tabular-nums"
-                />
-              </label>
-
-              <label className="flex flex-col gap-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.04em] text-wandor-muted">
-                  Currency
-                </span>
-                <select
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value as CurrencyCode)}
-                  className="rounded-2xl border border-black/15 bg-white px-4 py-3 text-sm text-wandor-text outline-none focus:border-black"
-                >
-                  {CURRENCIES.map((item) => (
-                    <option key={item.code} value={item.code}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="flex flex-col gap-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.04em] text-wandor-muted">
-                  Language
-                </span>
-                <select
-                  value={language}
-                  onChange={(e) =>
-                    setLanguage(e.target.value as PreferredLanguage)
-                  }
-                  className="rounded-2xl border border-black/15 bg-white px-4 py-3 text-sm text-wandor-text outline-none focus:border-black"
-                >
-                  <option value="auto">Auto (English / Malayalam)</option>
-                  <option value="en">English</option>
-                  <option value="ml">Malayalam (മലയാളം)</option>
-                </select>
-              </label>
-            </div>
-
-            {/* Travel Style */}
-            <div className="space-y-3">
-              <span className="block text-xs font-semibold uppercase tracking-[0.04em] text-wandor-muted">
-                Travel Style
-              </span>
-              <div className="flex flex-wrap gap-2.5">
-                {TRAVEL_STYLES.map((style) => (
-                  <button
-                    key={style.id}
-                    type="button"
-                    onClick={() => setTravelStyle(style.id)}
-                    className={`cursor-pointer rounded-full px-4 py-2 text-xs font-medium uppercase tracking-[0.04em] transition-colors ${
-                      travelStyle === style.id
-                        ? 'bg-wandor-dark text-[#fafafa]'
-                        : 'border border-black/15 bg-white text-wandor-text hover:bg-black/5'
-                    }`}
-                  >
-                    {style.label}
-                  </button>
-                ))}
+                <label className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
+                    Return Date
+                  </span>
+                  <input
+                    type="date"
+                    value={returnDate}
+                    onChange={(e) => setReturnDate(e.target.value)}
+                    className="rounded-xl border border-safar-border bg-safar-skySoft/40 px-4 py-3 text-sm text-safar-navy outline-none transition-colors focus:border-safar-navy focus:bg-white tabular-nums"
+                  />
+                </label>
               </div>
             </div>
 
-            {/* Interests */}
-            <div className="space-y-3">
-              <span className="block text-xs font-semibold uppercase tracking-[0.04em] text-wandor-muted">
-                Interests
-              </span>
-              <div className="flex flex-wrap gap-2.5">
-                {INTEREST_OPTIONS.map((interest) => {
-                  const selected = interests.includes(interest);
-                  return (
+            {/* Group, Budget & Language */}
+            <div className="rounded-2xl border border-safar-border bg-white p-5 sm:p-6 space-y-4">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-safar-orange">
+                <Wallet className="w-3.5 h-3.5" aria-hidden="true" />
+                Travelers, Budget &amp; Language
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
+                <label className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
+                    Travelers
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={travelers}
+                    onChange={(e) => setTravelers(Number(e.target.value))}
+                    className="rounded-xl border border-safar-border bg-safar-skySoft/40 px-4 py-3 text-sm text-safar-navy outline-none transition-colors focus:border-safar-navy focus:bg-white tabular-nums"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
+                    Duration (Days)
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={durationDays}
+                    onChange={(e) => setDurationDays(Number(e.target.value))}
+                    className="rounded-xl border border-safar-border bg-safar-skySoft/40 px-4 py-3 text-sm text-safar-navy outline-none transition-colors focus:border-safar-navy focus:bg-white tabular-nums"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
+                    Target Budget
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    step="100"
+                    value={budgetAmount}
+                    onChange={(e) => setBudgetAmount(Number(e.target.value))}
+                    className="rounded-xl border border-safar-border bg-safar-skySoft/40 px-4 py-3 text-sm text-safar-navy outline-none transition-colors focus:border-safar-navy focus:bg-white tabular-nums"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
+                    Currency
+                  </span>
+                  <select
+                    value={currency}
+                    onChange={(e) => setCurrency(e.target.value as CurrencyCode)}
+                    className="rounded-xl border border-safar-border bg-safar-skySoft/40 px-4 py-3 text-sm text-safar-navy outline-none transition-colors focus:border-safar-navy focus:bg-white"
+                  >
+                    {CURRENCIES.map((item) => (
+                      <option key={item.code} value={item.code}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
+                    Language
+                  </span>
+                  <select
+                    value={language}
+                    onChange={(e) =>
+                      setLanguage(e.target.value as PreferredLanguage)
+                    }
+                    className="rounded-xl border border-safar-border bg-safar-skySoft/40 px-4 py-3 text-sm text-safar-navy outline-none transition-colors focus:border-safar-navy focus:bg-white"
+                  >
+                    <option value="auto">Auto (English / Malayalam)</option>
+                    <option value="en">English</option>
+                    <option value="ml">Malayalam (മലയാളം)</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            {/* Travel Style & Interests */}
+            <div className="rounded-2xl border border-safar-border bg-white p-5 sm:p-6 space-y-6">
+              <div className="space-y-3">
+                <span className="block text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
+                  Travel Style
+                </span>
+                <div className="flex flex-wrap gap-2.5">
+                  {TRAVEL_STYLES.map((style) => (
                     <button
-                      key={interest}
+                      key={style.id}
                       type="button"
-                      onClick={() => toggleInterest(interest)}
-                      className={`cursor-pointer rounded-full px-4 py-2 text-xs font-medium transition-colors ${
-                        selected
-                          ? 'border border-wandor-prompt bg-wandor-prompt/10 text-wandor-prompt'
-                          : 'border border-black/15 bg-white text-wandor-muted hover:text-wandor-text'
+                      onClick={() => setTravelStyle(style.id)}
+                      className={`cursor-pointer rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.04em] transition-colors whitespace-nowrap ${
+                        travelStyle === style.id
+                          ? 'bg-safar-navy text-white shadow-xs'
+                          : 'border border-safar-border bg-white text-safar-navy hover:bg-safar-skySoft'
                       }`}
                     >
-                      {interest}
+                      {style.label}
                     </button>
-                  );
-                })}
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3 pt-4 border-t border-safar-border/70">
+                <span className="block text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
+                  Interests
+                </span>
+                <div className="flex flex-wrap gap-2.5">
+                  {INTEREST_OPTIONS.map((interest) => {
+                    const selected = interests.includes(interest);
+                    return (
+                      <button
+                        key={interest}
+                        type="button"
+                        onClick={() => toggleInterest(interest)}
+                        className={`cursor-pointer rounded-full px-4 py-2 text-xs font-semibold transition-colors whitespace-nowrap ${
+                          selected
+                            ? 'border border-safar-orange bg-safar-orangeSoft text-safar-orangeHover'
+                            : 'border border-safar-border bg-white text-safar-slate hover:text-safar-navy hover:bg-safar-skySoft'
+                        }`}
+                      >
+                        {interest}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
             {/* Additional notes / Malayalam or English prompt */}
-            <label className="flex flex-col gap-2">
-              <span className="text-xs font-semibold uppercase tracking-[0.04em] text-wandor-muted">
-                Preferences or Custom Request (English or Malayalam / മലയാളം)
-              </span>
-              <textarea
-                rows={3}
-                maxLength={2000}
-                value={promptNotes}
-                onChange={(e) => setPromptNotes(e.target.value)}
-                placeholder="Tell Safar anything specific — e.g., vegetarian cafes, kid-friendly pacing, avoiding weekend crowds, or write in മലയാളം..."
-                className="rounded-2xl border border-black/15 bg-white px-4 py-3 text-sm text-wandor-text outline-none focus:border-black resize-y"
-              />
-            </label>
+            <div className="rounded-2xl border border-safar-border bg-white p-5 sm:p-6 space-y-5">
+              <label className="flex flex-col gap-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
+                  Preferences or Custom Request (English or Malayalam / മലയാളം)
+                </span>
+                <textarea
+                  rows={3}
+                  maxLength={2000}
+                  value={promptNotes}
+                  onChange={(e) => setPromptNotes(e.target.value)}
+                  placeholder="Tell Safar anything specific — e.g., vegetarian cafes, kid-friendly pacing, avoiding weekend crowds, or write in മലയാളം..."
+                  className="rounded-xl border border-safar-border bg-safar-skySoft/40 px-4 py-3 text-sm text-safar-navy outline-none transition-colors focus:border-safar-navy focus:bg-white resize-y"
+                />
+              </label>
 
-            {isGenerating && (
-              <div
-                role="status"
-                aria-live="polite"
-                className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-black/10 bg-black/[0.03] px-5 py-4"
-              >
-                <div className="space-y-0.5">
-                  <p className="text-sm font-medium text-wandor-text">
-                    {GENERATION_LOADING_MESSAGES[loadingStageIndex]}
-                  </p>
-                  <p className="text-xs text-wandor-muted">
-                    {loadingStageIndex === 0
-                      ? 'Preparing routes, visiting hours, and local recommendations.'
-                      : loadingStageIndex === 1
-                        ? 'Balancing travel times and realistic budget estimates.'
-                        : 'Finalizing your Safar schedule and map stops.'}
-                  </p>
+              {isGenerating && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-safar-border bg-safar-skySoft px-5 py-4"
+                >
+                  <div className="space-y-0.5">
+                    <p className="text-sm font-semibold text-safar-navy">
+                      {GENERATION_LOADING_MESSAGES[loadingStageIndex]}
+                    </p>
+                    <p className="text-xs text-safar-slate">
+                      {loadingStageIndex === 0
+                        ? 'Preparing routes, visiting hours, and local recommendations.'
+                        : loadingStageIndex === 1
+                          ? 'Balancing travel times and realistic budget estimates.'
+                          : 'Finalizing your Safar schedule and map stops.'}
+                    </p>
+                  </div>
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-safar-orange shrink-0">
+                    SAFAR · سفر
+                  </span>
                 </div>
-                <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-wandor-prompt shrink-0">
-                  SAFAR · سفر
-                </span>
-              </div>
-            )}
+              )}
 
-            <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
-              <div className="flex flex-wrap items-center gap-2 text-xs text-wandor-muted">
-                <span>
-                  {user
-                    ? `Signed in as ${user.displayName || user.email}`
-                    : 'Sign in with Google when generating to save and manage your trips.'}
-                </span>
-                {user && (
-                  <button
-                    type="button"
-                    disabled={authLoading}
-                    onClick={() => void logout()}
-                    className="md:hidden cursor-pointer font-medium text-wandor-text underline hover:opacity-70 disabled:opacity-50"
-                  >
-                    Sign out
-                  </button>
-                )}
-              </div>
+              <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-safar-border/70">
+                <div className="flex flex-wrap items-center gap-2.5 text-xs text-safar-slate">
+                  <span>
+                    {user
+                      ? `Signed in as ${user.displayName || user.email}`
+                      : 'Sign in with Google when generating to save and manage your trips.'}
+                  </span>
+                  {user && (
+                    <button
+                      type="button"
+                      disabled={authLoading}
+                      onClick={() => void logout()}
+                      className="md:hidden cursor-pointer font-semibold text-safar-navy underline hover:text-safar-orange disabled:opacity-50"
+                    >
+                      Sign out
+                    </button>
+                  )}
+                </div>
 
-              <button
-                type="submit"
-                disabled={isGenerating || authLoading}
-                className="cursor-pointer rounded-full bg-wandor-dark px-7 py-3.5 font-sans text-sm font-medium uppercase tracking-[0.04em] text-[#fafafa] transition-all hover:bg-[#333] active:scale-95 disabled:opacity-60"
-              >
-                {isGenerating ? 'SAFAR is planning...' : 'Generate Itinerary'}
-              </button>
+                <button
+                  type="submit"
+                  disabled={isGenerating || authLoading}
+                  className="cursor-pointer inline-flex items-center gap-2 rounded-full bg-safar-navy px-7 py-3.5 font-sans text-sm font-semibold uppercase tracking-[0.04em] text-white shadow-[0_10px_24px_rgba(15,37,68,0.2)] transition-all hover:bg-safar-navyHover active:scale-95 disabled:opacity-60 whitespace-nowrap"
+                >
+                  <Sparkles className="w-4 h-4 text-safar-orange" aria-hidden="true" />
+                  {isGenerating ? 'SAFAR is planning...' : 'Generate Itinerary'}
+                </button>
+              </div>
             </div>
           </form>
         )}
 
         {/* TAB 2: ITINERARY & BUDGET */}
         {activeTab === 'itinerary' && activePlan && (
-          <div className="mt-8 space-y-10">
+          <div className="mt-8 space-y-8">
             {/* Trip Overview & Persistence Controls */}
-            <div className="rounded-[28px] border border-black/10 p-6 md:p-8 space-y-6 safar-print-card">
+            <div className="rounded-[28px] border border-safar-border bg-gradient-to-br from-safar-skySoft/85 via-white to-white p-6 md:p-8 space-y-6 shadow-[0_10px_32px_rgba(15,37,68,0.05)] safar-print-card">
               <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
                 <div className="flex-1 space-y-3">
-                  <div className="flex flex-wrap items-center gap-3 text-xs font-medium uppercase tracking-[0.04em] text-wandor-muted">
-                    <span className="inline-flex items-center gap-1 text-wandor-prompt">
+                  <div className="flex flex-wrap items-center gap-3 text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
+                    <span className="inline-flex items-center gap-1 text-safar-orange">
                       <MapPin className="w-3.5 h-3.5" />
                       {activePlan.destination}
                       {activeCountry &&
@@ -1276,23 +1417,23 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                     onChange={(e) => setTripTitle(e.target.value)}
                     maxLength={200}
                     aria-label="Trip title"
-                    className="w-full font-sans text-2xl md:text-3xl font-medium tracking-[-0.02em] text-wandor-text bg-transparent border-b border-transparent focus:border-black/20 outline-none pb-1"
+                    className="w-full font-sans text-2xl md:text-3xl font-semibold tracking-[-0.02em] text-safar-navy bg-transparent border-b border-transparent focus:border-safar-navy/30 outline-none pb-1"
                   />
 
-                  <p className="text-base text-wandor-muted leading-relaxed">
+                  <p className="text-base text-safar-slate leading-relaxed">
                     {activePlan.tripSummary}
                   </p>
                 </div>
 
                 <div
                   data-print-hide="true"
-                  className="flex flex-wrap items-center gap-2.5 shrink-0 lg:max-w-[440px] lg:justify-end"
+                  className="flex flex-wrap items-center gap-2.5 shrink-0 lg:max-w-[460px] lg:justify-end"
                 >
                   <select
                     aria-label="Trip status"
                     value={tripStatus}
                     onChange={(e) => setTripStatus(e.target.value as TripStatus)}
-                    className="rounded-full border border-black/15 bg-white px-4 py-2.5 text-xs font-medium uppercase tracking-[0.04em] text-wandor-text outline-none"
+                    className="rounded-full border border-safar-border bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.04em] text-safar-navy outline-none"
                   >
                     <option value="draft">Draft</option>
                     <option value="planned">Planned</option>
@@ -1303,7 +1444,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                     type="button"
                     disabled={isSaving}
                     onClick={handleSaveOrUpdateTrip}
-                    className="cursor-pointer rounded-full bg-wandor-dark px-5 py-2.5 text-xs font-medium uppercase tracking-[0.04em] text-[#fafafa] transition-all hover:bg-[#333] disabled:opacity-60"
+                    className="cursor-pointer rounded-full bg-safar-navy px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.04em] text-white transition-all hover:bg-safar-navyHover disabled:opacity-60 whitespace-nowrap"
                   >
                     {isSaving
                       ? 'Saving...'
@@ -1316,12 +1457,12 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                     type="button"
                     disabled={isExportingPdf}
                     onClick={() => void handleDownloadPdf()}
-                    className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-black/15 bg-white px-4 py-2.5 text-xs font-medium uppercase tracking-[0.04em] text-wandor-text hover:bg-black/5 disabled:opacity-60"
+                    className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-safar-border bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.04em] text-safar-navy hover:bg-safar-skySoft disabled:opacity-60 whitespace-nowrap transition-colors"
                   >
                     {isExportingPdf ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     ) : (
-                      <Download className="w-3.5 h-3.5 text-wandor-prompt" />
+                      <Download className="w-3.5 h-3.5 text-safar-orange" />
                     )}
                     {isExportingPdf ? 'Exporting PDF...' : 'Download PDF'}
                   </button>
@@ -1329,25 +1470,25 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                   <button
                     type="button"
                     onClick={() => setIsShareModalOpen(true)}
-                    className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-black/15 bg-white px-4 py-2.5 text-xs font-medium uppercase tracking-[0.04em] text-wandor-text hover:bg-black/5"
+                    className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-safar-border bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.04em] text-safar-navy hover:bg-safar-skySoft whitespace-nowrap transition-colors"
                   >
-                    <Share2 className="w-3.5 h-3.5 text-wandor-prompt" />
+                    <Share2 className="w-3.5 h-3.5 text-safar-orange" />
                     Share Trip
                   </button>
 
                   <button
                     type="button"
                     onClick={handlePrintTrip}
-                    className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-black/15 bg-white px-4 py-2.5 text-xs font-medium uppercase tracking-[0.04em] text-wandor-text hover:bg-black/5"
+                    className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-safar-border bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.04em] text-safar-navy hover:bg-safar-skySoft whitespace-nowrap transition-colors"
                   >
-                    <Printer className="w-3.5 h-3.5 text-wandor-prompt" />
+                    <Printer className="w-3.5 h-3.5 text-safar-orange" />
                     Print Trip
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setActiveTab('plan')}
-                    className="cursor-pointer rounded-full border border-black/15 bg-white px-4 py-2.5 text-xs font-medium uppercase tracking-[0.04em] text-wandor-text hover:bg-black/5"
+                    className="cursor-pointer rounded-full border border-safar-border bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.04em] text-safar-navy hover:bg-safar-skySoft whitespace-nowrap transition-colors"
                   >
                     Edit Inputs
                   </button>
@@ -1358,7 +1499,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                 data-print-hide={tripNotes.trim() ? undefined : 'true'}
                 className="block"
               >
-                <span className="block text-xs font-semibold uppercase tracking-[0.04em] text-wandor-muted mb-2">
+                <span className="block text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate mb-2">
                   Personal Notes
                 </span>
                 <input
@@ -1367,7 +1508,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                   value={tripNotes}
                   onChange={(e) => setTripNotes(e.target.value)}
                   placeholder="Add booking reminders, packing notes, or custom edits..."
-                  className="w-full rounded-xl border border-black/10 bg-black/[0.02] px-4 py-2.5 text-sm text-wandor-text outline-none focus:border-black/30"
+                  className="w-full rounded-xl border border-safar-border bg-white px-4 py-2.5 text-sm text-safar-navy outline-none focus:border-safar-navy"
                 />
               </label>
 
@@ -1375,11 +1516,11 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
               {(destPhotosLoading || destPhotos.length > 0) && (
                 <div
                   data-print-hide="true"
-                  className="pt-4 border-t border-black/10 space-y-3"
+                  className="pt-4 border-t border-safar-border space-y-3"
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.04em] text-wandor-muted">
-                      <Camera className="w-3.5 h-3.5 text-wandor-prompt" />
+                    <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
+                      <Camera className="w-3.5 h-3.5 text-safar-orange" />
                       Destination Photography · {activePlan.destination}
                     </span>
                     {destPhotos.length > 0 && (
@@ -1394,7 +1535,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                             initialPhotos: destPhotos,
                           })
                         }
-                        className="cursor-pointer text-xs font-medium text-wandor-prompt hover:underline"
+                        className="cursor-pointer text-xs font-semibold text-safar-orange hover:underline"
                       >
                         View Gallery ({destPhotos.length})
                       </button>
@@ -1406,7 +1547,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                       {Array.from({ length: 4 }).map((_, idx) => (
                         <div
                           key={idx}
-                          className="aspect-[4/3] rounded-xl animate-pulse bg-black/[0.06]"
+                          className="aspect-[4/3] rounded-xl animate-pulse bg-safar-sky"
                         />
                       ))}
                     </div>
@@ -1426,7 +1567,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                               initialIndex: idx,
                             })
                           }
-                          className="cursor-pointer group rounded-xl overflow-hidden border border-black/10 text-left"
+                          className="cursor-pointer group rounded-xl overflow-hidden border border-safar-border text-left"
                         >
                           <ResponsivePhoto
                             photo={photo}
@@ -1443,23 +1584,23 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
             </div>
 
             {/* Budget Planner */}
-            <div className="rounded-[28px] border border-black/10 p-6 md:p-8 space-y-6 safar-print-card">
+            <div className="rounded-[28px] border border-safar-border bg-white p-6 md:p-8 space-y-6 shadow-[0_8px_28px_rgba(15,37,68,0.04)] safar-print-card">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-2.5">
-                  <Wallet className="w-5 h-5 text-wandor-prompt" />
-                  <h3 className="text-xl font-medium tracking-[-0.02em] text-wandor-text">
+                  <Wallet className="w-5 h-5 text-safar-orange" />
+                  <h3 className="text-xl font-semibold tracking-[-0.02em] text-safar-navy">
                     Budget Planner ({activePlan.currency})
                   </h3>
                 </div>
                 <div className="text-left sm:text-right">
-                  <p className="text-xs uppercase tracking-[0.04em] text-wandor-muted">
+                  <p className="text-xs uppercase tracking-[0.04em] text-safar-slate">
                     Total Estimated Cost
                   </p>
-                  <p className="text-2xl font-semibold text-wandor-text tabular-nums">
+                  <p className="text-2xl font-semibold text-safar-navy tabular-nums">
                     {formatMoney(activePlan.totalEstimatedBudget, activePlan.currency)}
                   </p>
                   {budgetAmount > 0 && (
-                    <p className="text-xs text-wandor-muted tabular-nums">
+                    <p className="text-xs text-safar-slate tabular-nums">
                       Target budget: {formatMoney(budgetAmount, activePlan.currency)}
                     </p>
                   )}
@@ -1474,26 +1615,47 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                     ['transportation', 'Transportation'],
                     ['activities', 'Activities'],
                   ] as const
-                ).map(([key, label]) => (
-                  <label
-                    key={key}
-                    className="rounded-2xl border border-black/10 p-4 flex flex-col gap-2"
-                  >
-                    <span className="text-xs font-medium uppercase tracking-[0.04em] text-wandor-muted">
-                      {label}
-                    </span>
-                    <input
-                      type="number"
-                      min={0}
-                      value={activePlan.budgetBreakdown[key]}
-                      onChange={(e) => handleBudgetFieldChange(key, e.target.value)}
-                      className="font-sans text-lg font-medium text-wandor-text bg-transparent outline-none tabular-nums"
-                    />
-                  </label>
-                ))}
+                ).map(([key, label]) => {
+                  const val = activePlan.budgetBreakdown[key] || 0;
+                  const sharePct =
+                    activePlan.totalEstimatedBudget > 0
+                      ? Math.min(
+                          100,
+                          Math.round((val / activePlan.totalEstimatedBudget) * 100),
+                        )
+                      : 0;
+                  return (
+                    <label
+                      key={key}
+                      className="rounded-2xl border border-safar-border bg-safar-skySoft/55 p-4 flex flex-col gap-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
+                          {label}
+                        </span>
+                        <span className="text-[11px] font-medium text-safar-orange tabular-nums">
+                          {sharePct}%
+                        </span>
+                      </div>
+                      <input
+                        type="number"
+                        min={0}
+                        value={val}
+                        onChange={(e) => handleBudgetFieldChange(key, e.target.value)}
+                        className="font-sans text-lg font-semibold text-safar-navy bg-transparent outline-none tabular-nums"
+                      />
+                      <div className="h-1.5 w-full rounded-full bg-safar-sky overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-safar-orange transition-all duration-200"
+                          style={{ width: `${sharePct}%` }}
+                        />
+                      </div>
+                    </label>
+                  );
+                })}
               </div>
 
-              <p className="text-xs text-wandor-muted">
+              <p className="text-xs text-safar-slate">
                 {activePlan.budgetBreakdown.disclaimer}
               </p>
             </div>
@@ -1517,8 +1679,8 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
             {/* Day-by-Day Itinerary */}
             <div className="space-y-5">
               <div className="flex items-center gap-2.5">
-                <Calendar className="w-5 h-5 text-wandor-prompt" />
-                <h3 className="text-xl font-medium tracking-[-0.02em] text-wandor-text">
+                <Calendar className="w-5 h-5 text-safar-orange" />
+                <h3 className="text-xl font-semibold tracking-[-0.02em] text-safar-navy">
                   Day-by-Day Schedule
                 </h3>
               </div>
@@ -1529,43 +1691,43 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                   return (
                     <div
                       key={day.day}
-                      className={`rounded-[24px] border p-6 space-y-4 transition-colors safar-print-card ${
+                      className={`rounded-[24px] border bg-white p-6 space-y-4 transition-colors shadow-[0_6px_22px_rgba(15,37,68,0.03)] safar-print-card ${
                         isDayFocused
-                          ? 'border-wandor-prompt/50 ring-1 ring-wandor-prompt/20'
-                          : 'border-black/10'
+                          ? 'border-safar-orange/60 ring-1 ring-safar-orange/25'
+                          : 'border-safar-border'
                       }`}
                     >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-black/10">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-safar-border">
                         <button
                           type="button"
                           onClick={() => focusDayOnMap(day.day)}
                           className="cursor-pointer text-left group"
                         >
-                          <span className="text-xs font-semibold uppercase tracking-[0.04em] text-wandor-prompt tabular-nums group-hover:underline">
+                          <span className="text-xs font-semibold uppercase tracking-[0.04em] text-safar-orange tabular-nums group-hover:underline">
                             Day {day.day}
                             {day.date ? ` · ${day.date}` : ''}
                           </span>
-                          <h4 className="text-lg font-medium text-wandor-text group-hover:text-wandor-prompt transition-colors">
+                          <h4 className="text-lg font-semibold text-safar-navy group-hover:text-safar-orange transition-colors">
                             {day.theme}
                           </h4>
                         </button>
                         <div className="flex items-center gap-3">
-                          <span className="text-xs text-wandor-muted">
+                          <span className="text-xs text-safar-slate">
                             Est. transit: {day.estimatedTravelTime}
                           </span>
                           <button
                             type="button"
                             data-print-hide="true"
                             onClick={() => focusDayOnMap(day.day)}
-                            className={`cursor-pointer inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium uppercase tracking-[0.04em] transition-colors ${
+                            className={`cursor-pointer inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.04em] transition-colors whitespace-nowrap ${
                               isDayFocused
-                                ? 'bg-wandor-dark text-[#fafafa]'
-                                : 'border border-black/15 text-wandor-text hover:bg-black/5'
+                                ? 'bg-safar-navy text-white'
+                                : 'border border-safar-border bg-safar-skySoft text-safar-navy hover:bg-safar-sky'
                             }`}
                           >
                             <MapPin
                               className={`w-3 h-3 ${
-                                isDayFocused ? 'text-[#fafafa]' : 'text-wandor-prompt'
+                                isDayFocused ? 'text-safar-orange' : 'text-safar-orange'
                               }`}
                             />
                             Day {day.day} Map
@@ -1584,26 +1746,26 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                             <div
                               key={slotStopId}
                               id={slotStopId}
-                              className={`grid grid-cols-1 md:grid-cols-[140px_1fr] gap-2 md:gap-6 py-2.5 px-2 -mx-2 rounded-xl border-b border-black/5 last:border-b-0 transition-colors ${
-                                isHighlighted ? 'bg-wandor-prompt/[0.06]' : ''
+                              className={`grid grid-cols-1 md:grid-cols-[140px_1fr] gap-2 md:gap-6 py-2.5 px-3 -mx-3 rounded-xl border-b border-safar-border/50 last:border-b-0 transition-colors ${
+                                isHighlighted ? 'bg-safar-orangeSoft' : ''
                               }`}
                             >
-                              <div className="text-xs font-semibold text-wandor-text tabular-nums">
+                              <div className="text-xs font-semibold text-safar-navy tabular-nums">
                                 <div>{slot.time}</div>
                                 {slot.travelTimeFromPrev && (
-                                  <div className="text-wandor-muted font-normal mt-0.5">
+                                  <div className="text-safar-slate font-normal mt-0.5">
                                     {slot.travelTimeFromPrev}
                                   </div>
                                 )}
                               </div>
                               <div className="space-y-1">
                                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                                  <p className="text-sm font-medium text-wandor-text">
+                                  <p className="text-sm font-semibold text-safar-navy">
                                     {slot.activity}
                                   </p>
                                   <div className="flex items-center gap-2.5">
                                     {slot.estimatedCost > 0 && (
-                                      <span className="text-xs font-medium text-wandor-muted tabular-nums">
+                                      <span className="text-xs font-medium text-safar-slate tabular-nums">
                                         ~{formatMoney(slot.estimatedCost, activePlan.currency)}
                                       </span>
                                     )}
@@ -1623,7 +1785,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                                               block: 'start',
                                             });
                                         }}
-                                        className="cursor-pointer inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.04em] text-wandor-prompt hover:underline"
+                                        className="cursor-pointer inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.04em] text-safar-orange hover:underline"
                                       >
                                         <MapPin className="w-3 h-3" />
                                         Map
@@ -1631,19 +1793,19 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                                     )}
                                   </div>
                                 </div>
-                              <p className="text-xs text-wandor-muted">
-                                {slot.location}
-                                {slot.visitingHours ? ` · Hours: ${slot.visitingHours}` : ''}
-                              </p>
-                              {slot.notes && (
-                                <p className="text-xs text-wandor-muted leading-relaxed">
-                                  {slot.notes}
+                                <p className="text-xs text-safar-slate">
+                                  {slot.location}
+                                  {slot.visitingHours ? ` · Hours: ${slot.visitingHours}` : ''}
                                 </p>
-                              )}
+                                {slot.notes && (
+                                  <p className="text-xs text-safar-slate leading-relaxed">
+                                    {slot.notes}
+                                  </p>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -1653,10 +1815,10 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
 
             {/* Attractions, Stays, Food */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="rounded-[24px] border border-black/10 p-6 space-y-4 safar-print-card">
+              <div className="rounded-[24px] border border-safar-border bg-white p-6 space-y-4 shadow-[0_6px_22px_rgba(15,37,68,0.03)] safar-print-card">
                 <div className="flex items-center gap-2">
-                  <Compass className="w-4 h-4 text-wandor-prompt" />
-                  <h3 className="text-base font-medium text-wandor-text">
+                  <Compass className="w-4 h-4 text-safar-orange" />
+                  <h3 className="text-base font-semibold text-safar-navy">
                     Key Attractions
                   </h3>
                 </div>
@@ -1678,7 +1840,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                                 initialPhotos: [attrPhoto],
                               })
                             }
-                            className="cursor-pointer group block w-full rounded-xl overflow-hidden border border-black/10 text-left"
+                            className="cursor-pointer group block w-full rounded-xl overflow-hidden border border-safar-border text-left"
                           >
                             <ResponsivePhoto
                               photo={attrPhoto}
@@ -1689,26 +1851,26 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                           </button>
                         )}
                         <div className="space-y-1">
-                          <p className="text-sm font-medium text-wandor-text">
+                          <p className="text-sm font-semibold text-safar-navy">
                             {item.name}
                           </p>
-                          <p className="text-xs text-wandor-muted">
+                          <p className="text-xs text-safar-slate">
                             Best time: {item.bestTimeToVisit} · {item.estimatedDuration}
                           </p>
-                          <p className="text-xs text-wandor-muted leading-relaxed">
+                          <p className="text-xs text-safar-slate leading-relaxed">
                             {item.description}
                           </p>
                           {attrPhoto && (
                             <p
                               data-print-hide="true"
-                              className="text-[11px] text-wandor-muted"
+                              className="text-[11px] text-safar-slate/85"
                             >
                               Photo by{' '}
                               <a
                                 href={attrPhoto.attribution.photographerUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="underline hover:text-wandor-text"
+                                className="underline hover:text-safar-navy"
                               >
                                 {attrPhoto.attribution.photographerName}
                               </a>{' '}
@@ -1717,7 +1879,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                                 href={attrPhoto.attribution.sourceUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="underline hover:text-wandor-text"
+                                className="underline hover:text-safar-navy"
                               >
                                 {attrPhoto.attribution.sourceName}
                               </a>
@@ -1730,23 +1892,23 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                 </div>
               </div>
 
-              <div className="rounded-[24px] border border-black/10 p-6 space-y-4 safar-print-card">
+              <div className="rounded-[24px] border border-safar-border bg-white p-6 space-y-4 shadow-[0_6px_22px_rgba(15,37,68,0.03)] safar-print-card">
                 <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-wandor-prompt" />
-                  <h3 className="text-base font-medium text-wandor-text">
+                  <MapPin className="w-4 h-4 text-safar-orange" />
+                  <h3 className="text-base font-semibold text-safar-navy">
                     Stay Suggestions
                   </h3>
                 </div>
                 <div className="space-y-4">
                   {activePlan.accommodationSuggestions.map((stay, idx) => (
                     <div key={`${stay.name}-${idx}`} className="space-y-1">
-                      <p className="text-sm font-medium text-wandor-text">
+                      <p className="text-sm font-semibold text-safar-navy">
                         {stay.name}
                       </p>
-                      <p className="text-xs text-wandor-muted">
+                      <p className="text-xs text-safar-slate">
                         {stay.area} · {stay.tier} · {stay.approximateNightlyRange}
                       </p>
-                      <p className="text-xs text-wandor-muted leading-relaxed">
+                      <p className="text-xs text-safar-slate leading-relaxed">
                         {stay.notes}
                       </p>
                     </div>
@@ -1754,23 +1916,23 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                 </div>
               </div>
 
-              <div className="rounded-[24px] border border-black/10 p-6 space-y-4 safar-print-card">
+              <div className="rounded-[24px] border border-safar-border bg-white p-6 space-y-4 shadow-[0_6px_22px_rgba(15,37,68,0.03)] safar-print-card">
                 <div className="flex items-center gap-2">
-                  <Utensils className="w-4 h-4 text-wandor-prompt" />
-                  <h3 className="text-base font-medium text-wandor-text">
+                  <Utensils className="w-4 h-4 text-safar-orange" />
+                  <h3 className="text-base font-semibold text-safar-navy">
                     Food Recommendations
                   </h3>
                 </div>
                 <div className="space-y-4">
                   {activePlan.foodRecommendations.map((food, idx) => (
                     <div key={`${food.dishOrSpot}-${idx}`} className="space-y-1">
-                      <p className="text-sm font-medium text-wandor-text">
+                      <p className="text-sm font-semibold text-safar-navy">
                         {food.dishOrSpot}
                       </p>
-                      <p className="text-xs text-wandor-muted">
+                      <p className="text-xs text-safar-slate">
                         {food.type} · {food.area} · {food.approximateCostRange}
                       </p>
-                      <p className="text-xs text-wandor-muted leading-relaxed">
+                      <p className="text-xs text-safar-slate leading-relaxed">
                         {food.notes}
                       </p>
                     </div>
@@ -1781,11 +1943,11 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
 
             {/* Travel Tips & Contextual Follow-up Chat */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="rounded-[24px] border border-black/10 p-6 space-y-3 safar-print-card">
-                <h3 className="text-base font-medium text-wandor-text">
+              <div className="rounded-[24px] border border-safar-border bg-safar-skySoft/55 p-6 space-y-3 safar-print-card">
+                <h3 className="text-base font-semibold text-safar-navy">
                   Travel Tips
                 </h3>
-                <ul className="space-y-2 text-sm text-wandor-muted list-disc pl-5">
+                <ul className="space-y-2 text-sm text-safar-slate list-disc pl-5">
                   {activePlan.travelTips.map((tip, idx) => (
                     <li key={idx} className="leading-relaxed">
                       {tip}
@@ -1796,9 +1958,9 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
 
               <div
                 data-print-hide="true"
-                className="rounded-[24px] border border-black/10 p-6 space-y-4"
+                className="rounded-[24px] border border-safar-border bg-white p-6 space-y-4 shadow-[0_6px_22px_rgba(15,37,68,0.03)]"
               >
-                <h3 className="text-base font-medium text-wandor-text">
+                <h3 className="text-base font-semibold text-safar-navy">
                   Ask SAFAR AI Follow-Ups (English / മലയാളം)
                 </h3>
 
@@ -1809,8 +1971,8 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                         key={`${turn.role}-${idx}`}
                         className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
                           turn.role === 'user'
-                            ? 'bg-black/5 font-medium text-wandor-text'
-                            : 'border border-black/10 bg-white text-wandor-text'
+                            ? 'bg-safar-sky font-medium text-safar-navy'
+                            : 'border border-safar-border bg-safar-skySoft/45 text-safar-navy'
                         }`}
                       >
                         {turn.content}
@@ -1827,7 +1989,7 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                         type="button"
                         disabled={followUpLoading}
                         onClick={() => void handleFollowUp(q)}
-                        className="cursor-pointer rounded-full border border-black/10 bg-white px-3.5 py-1.5 text-xs text-wandor-text hover:bg-black/5 disabled:opacity-50 text-left"
+                        className="cursor-pointer rounded-full border border-safar-border bg-safar-skySoft/60 px-3.5 py-1.5 text-xs font-medium text-safar-navy hover:bg-safar-sky disabled:opacity-50 text-left transition-colors"
                       >
                         {q}
                       </button>
@@ -1848,12 +2010,12 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
                     onChange={(e) => setFollowUpText(e.target.value)}
                     placeholder="Ask a follow-up question..."
                     disabled={followUpLoading}
-                    className="flex-1 rounded-full border border-black/15 px-4 py-2.5 text-sm text-wandor-text outline-none focus:border-black"
+                    className="flex-1 rounded-full border border-safar-border bg-safar-skySoft/40 px-4 py-2.5 text-sm text-safar-navy outline-none focus:border-safar-navy focus:bg-white"
                   />
                   <button
                     type="submit"
                     disabled={followUpLoading || !followUpText.trim()}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-wandor-dark px-5 py-2.5 text-xs font-medium uppercase tracking-[0.04em] text-[#fafafa] hover:bg-[#333] disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-full bg-safar-navy px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.04em] text-white hover:bg-safar-navyHover disabled:opacity-50 transition-colors"
                   >
                     <Send className="w-3.5 h-3.5" />
                     {followUpLoading ? 'Sending...' : 'Ask'}
@@ -1866,130 +2028,218 @@ export default function TripPlanner({ heroTrigger }: TripPlannerProps) {
 
         {/* TAB 3: SAVED TRIPS (FIRESTORE) */}
         {activeTab === 'trips' && (
-          <div className="mt-8">
+          <div className="mt-8 space-y-6">
             {!authReady || tripsLoading ? (
-              <p className="py-12 text-center text-sm text-wandor-muted">
-                Loading your trips...
-              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {Array.from({ length: 2 }).map((_, idx) => (
+                  <div
+                    key={idx}
+                    className="h-56 rounded-[24px] border border-safar-border bg-safar-skySoft/60 animate-pulse"
+                  />
+                ))}
+              </div>
             ) : !user ? (
-              <div className="rounded-[28px] border border-black/10 p-10 text-center space-y-4">
-                <p className="text-base font-medium text-wandor-text">
+              <div className="rounded-[28px] border border-safar-border bg-gradient-to-br from-safar-skySoft via-white to-white p-10 text-center space-y-4 shadow-[0_8px_28px_rgba(15,37,68,0.04)]">
+                <p className="text-lg font-semibold text-safar-navy">
                   Sign in to view and manage your saved trips
                 </p>
-                <p className="text-sm text-wandor-muted max-w-md mx-auto">
-                  Your itineraries and budget plans are securely stored in your private Safar account.
+                <p className="text-sm text-safar-slate max-w-md mx-auto leading-relaxed">
+                  Your itineraries, budget adjustments, notes, and share links are securely stored in your private Safar account.
                 </p>
                 <button
                   type="button"
                   disabled={authLoading}
                   onClick={() => void signInWithGoogle()}
-                  className="cursor-pointer rounded-full bg-wandor-dark px-6 py-3 text-xs font-medium uppercase tracking-[0.04em] text-[#fafafa] hover:bg-[#333] disabled:opacity-50"
+                  className="cursor-pointer rounded-full bg-safar-navy px-6 py-3 text-xs font-semibold uppercase tracking-[0.04em] text-white hover:bg-safar-navyHover disabled:opacity-50 transition-colors"
                 >
                   {authLoading ? 'Signing in...' : 'Sign in with Google'}
                 </button>
               </div>
             ) : savedTrips.length === 0 ? (
-              <div className="rounded-[28px] border border-black/10 p-10 text-center space-y-4">
-                <p className="text-base font-medium text-wandor-text">
+              <div className="rounded-[28px] border border-safar-border bg-gradient-to-br from-safar-skySoft via-white to-white p-10 text-center space-y-4 shadow-[0_8px_28px_rgba(15,37,68,0.04)]">
+                <p className="text-lg font-semibold text-safar-navy">
                   No saved trips yet
                 </p>
-                <p className="text-sm text-wandor-muted">
+                <p className="text-sm text-safar-slate">
                   Generate an itinerary in the Plan Trip tab and click Save Trip to store it here.
                 </p>
                 <button
                   type="button"
                   onClick={() => setActiveTab('plan')}
-                  className="cursor-pointer rounded-full bg-wandor-dark px-6 py-3 text-xs font-medium uppercase tracking-[0.04em] text-[#fafafa] hover:bg-[#333]"
+                  className="cursor-pointer inline-flex items-center gap-2 rounded-full bg-safar-navy px-6 py-3 text-xs font-semibold uppercase tracking-[0.04em] text-white hover:bg-safar-navyHover transition-colors"
                 >
+                  <Plus className="w-3.5 h-3.5 text-safar-orange" aria-hidden="true" />
                   Plan Your First Trip
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {savedTrips.map((trip) => (
-                  <div
-                    key={trip.id}
-                    className="rounded-[24px] border border-black/10 p-6 flex flex-col justify-between gap-5"
-                  >
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2 text-xs uppercase tracking-[0.04em] text-wandor-muted">
-                        <span className="text-wandor-prompt font-semibold">
-                          {trip.destination}
-                        </span>
-                        <span className="tabular-nums">
-                          {trip.durationDays}d · {trip.travelers} travelers ·{' '}
-                          {trip.status}
-                        </span>
-                      </div>
-
-                      <h3 className="text-xl font-medium text-wandor-text">
-                        {trip.title}
-                      </h3>
-
-                      <p className="text-sm text-wandor-muted line-clamp-3 leading-relaxed">
-                        {trip.tripSummary}
-                      </p>
-
-                      <p className="text-sm font-medium text-wandor-text tabular-nums pt-1">
-                        Est. Budget:{' '}
-                        {formatMoney(trip.totalEstimatedBudget, trip.currency)}
-                      </p>
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-black/10">
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleLoadTrip(trip, false)}
-                          className="cursor-pointer rounded-full bg-wandor-dark px-4 py-2 text-xs font-medium uppercase tracking-[0.04em] text-[#fafafa] hover:bg-[#333]"
-                        >
-                          View
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleLoadTrip(trip, true)}
-                          className="cursor-pointer inline-flex items-center gap-1 rounded-full border border-black/15 px-4 py-2 text-xs font-medium uppercase tracking-[0.04em] text-wandor-text hover:bg-black/5"
-                        >
-                          <Pencil className="w-3 h-3" />
-                          Edit
-                        </button>
-                      </div>
-
-                      {confirmDeleteId === trip.id ? (
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            disabled={isDeletingId === trip.id}
-                            onClick={() => void handleDeleteTrip(trip.id)}
-                            className="cursor-pointer rounded-full bg-red-700 px-3.5 py-1.5 text-xs font-medium uppercase tracking-[0.04em] text-white hover:bg-red-800 disabled:opacity-50"
-                          >
-                            {isDeletingId === trip.id ? 'Deleting...' : 'Confirm'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setConfirmDeleteId(null)}
-                            className="cursor-pointer text-xs text-wandor-muted hover:text-wandor-text"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDeleteId(trip.id)}
-                          aria-label={`Delete ${trip.title}`}
-                          className="cursor-pointer inline-flex items-center gap-1 text-xs font-medium uppercase tracking-[0.04em] text-wandor-muted hover:text-red-700"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          Delete
-                        </button>
-                      )}
-                    </div>
+              <>
+                {/* My Trips Filter & Quick Create Bar */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-2xl border border-safar-border bg-safar-skySoft/65 p-4">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {(['all', 'planned', 'draft', 'archived'] as const).map((status) => (
+                      <button
+                        key={status}
+                        type="button"
+                        onClick={() => setTripStatusFilter(status)}
+                        className={`cursor-pointer rounded-full px-3.5 py-1.5 text-xs font-semibold uppercase tracking-[0.04em] transition-colors whitespace-nowrap ${
+                          tripStatusFilter === status
+                            ? 'bg-safar-navy text-white'
+                            : 'border border-safar-border bg-white text-safar-navy hover:bg-safar-sky'
+                        }`}
+                      >
+                        {status === 'all' ? 'All' : status}
+                      </button>
+                    ))}
                   </div>
-                ))}
-              </div>
+
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                    <input
+                      type="search"
+                      value={tripSearchFilter}
+                      onChange={(e) => setTripSearchFilter(e.target.value)}
+                      placeholder="Filter saved trips..."
+                      aria-label="Filter saved trips"
+                      className="rounded-full border border-safar-border bg-white px-4 py-2 text-xs text-safar-navy placeholder:text-safar-slate/70 outline-none focus:border-safar-navy"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('plan')}
+                      className="cursor-pointer inline-flex items-center justify-center gap-1.5 rounded-full bg-safar-orange px-4 py-2 text-xs font-semibold uppercase tracking-[0.04em] text-white hover:bg-safar-orangeHover transition-colors whitespace-nowrap"
+                    >
+                      <Plus className="w-3.5 h-3.5" aria-hidden="true" />
+                      New Trip
+                    </button>
+                  </div>
+                </div>
+
+                {filteredSavedTrips.length === 0 ? (
+                  <div className="rounded-[24px] border border-safar-border bg-white p-8 text-center space-y-2">
+                    <p className="text-sm font-semibold text-safar-navy">
+                      No trips match this filter
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTripStatusFilter('all');
+                        setTripSearchFilter('');
+                      }}
+                      className="cursor-pointer text-xs font-semibold text-safar-orange hover:underline"
+                    >
+                      Show all saved trips
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {filteredSavedTrips.map((trip) => (
+                      <div
+                        key={trip.id}
+                        className="rounded-[24px] border border-safar-border bg-white overflow-hidden flex flex-col justify-between shadow-[0_6px_22px_rgba(15,37,68,0.04)] transition-all duration-200 hover:shadow-[0_14px_32px_rgba(15,37,68,0.08)]"
+                      >
+                        <div className="p-6 space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-xs uppercase tracking-[0.04em]">
+                            <span className="inline-flex items-center gap-1 text-safar-orange font-semibold">
+                              <MapPin className="w-3.5 h-3.5" aria-hidden="true" />
+                              {trip.destination}
+                            </span>
+                            <span className="text-safar-slate font-medium tabular-nums">
+                              {trip.durationDays}d · {trip.travelers} travelers ·{' '}
+                              {trip.status}
+                            </span>
+                          </div>
+
+                          <h3 className="text-xl font-semibold text-safar-navy">
+                            {trip.title}
+                          </h3>
+
+                          <p className="text-sm text-safar-slate line-clamp-3 leading-relaxed">
+                            {trip.tripSummary}
+                          </p>
+
+                          <div className="pt-2 flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-safar-navy tabular-nums">
+                              Est. Budget:{' '}
+                              {formatMoney(trip.totalEstimatedBudget, trip.currency)}
+                            </p>
+                            {trip.departureDate && (
+                              <span className="text-xs text-safar-slate tabular-nums">
+                                {trip.departureDate}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="px-6 py-4 bg-safar-skySoft/50 border-t border-safar-border flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleLoadTrip(trip, false)}
+                              className="cursor-pointer rounded-full bg-safar-navy px-4 py-2 text-xs font-semibold uppercase tracking-[0.04em] text-white hover:bg-safar-navyHover transition-colors whitespace-nowrap"
+                            >
+                              View
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleLoadTrip(trip, true)}
+                              className="cursor-pointer inline-flex items-center gap-1 rounded-full border border-safar-border bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.04em] text-safar-navy hover:bg-safar-sky transition-colors whitespace-nowrap"
+                            >
+                              <Pencil className="w-3 h-3 text-safar-orange" />
+                              Edit
+                            </button>
+                          </div>
+
+                          {confirmDeleteId === trip.id ? (
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={isDeletingId === trip.id}
+                                onClick={() => void handleDeleteTrip(trip.id)}
+                                className="cursor-pointer rounded-full bg-red-700 px-3.5 py-1.5 text-xs font-semibold uppercase tracking-[0.04em] text-white hover:bg-red-800 disabled:opacity-50"
+                              >
+                                {isDeletingId === trip.id ? 'Deleting...' : 'Confirm'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(null)}
+                                className="cursor-pointer text-xs font-medium text-safar-slate hover:text-safar-navy"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteId(trip.id)}
+                              aria-label={`Delete ${trip.title}`}
+                              className="cursor-pointer inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate hover:text-red-700 transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
+        )}
+
+        {/* TAB 4: PROFILE & SETTINGS */}
+        {activeTab === 'profile' && (
+          <ProfileSettingsPanel
+            user={user}
+            authReady={authReady}
+            authLoading={authLoading}
+            savedTrips={savedTrips}
+            preferences={preferences}
+            onSavePreferences={handleSavePreferences}
+            onSignIn={signInWithGoogle}
+            onSignOut={logout}
+            onNavigateTab={(tab) => setActiveTab(tab)}
+          />
         )}
       </div>
 

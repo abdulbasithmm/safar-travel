@@ -155,31 +155,31 @@ export default function DestinationGallery({
     <section
       id="destinations"
       data-print-hide="true"
-      className="w-full bg-white text-wandor-text border-t border-black/10"
+      className="w-full bg-gradient-to-b from-safar-skySoft/85 via-white to-white text-safar-navy border-t border-safar-border"
     >
       <div className="max-w-[1200px] mx-auto px-6 py-16 md:py-20 space-y-8">
         {/* Header & Search Controls */}
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between pb-6 border-b border-black/10">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between pb-6 border-b border-safar-border">
           <div className="space-y-2 max-w-xl">
-            <p className="font-sans text-xs font-semibold uppercase tracking-[0.08em] text-wandor-prompt">
-              SAFAR Destination Photography
+            <p className="font-sans text-xs font-semibold uppercase tracking-[0.08em] text-safar-orange">
+              Discover · SAFAR Destination Photography
             </p>
-            <h2 className="font-sans text-[clamp(28px,3.6vw,42px)] font-medium tracking-[-0.03em] text-wandor-text leading-tight">
+            <h2 className="font-sans text-[clamp(28px,3.6vw,42px)] font-semibold tracking-[-0.03em] text-safar-navy leading-tight">
               Explore places in real detail
             </h2>
-            <p className="text-sm text-wandor-muted leading-relaxed">
-              Browse curated real photographs of mountains, backwaters, beaches,
-              stays, and landmarks with Safar before building your itinerary.
+            <p className="text-sm text-safar-slate leading-relaxed">
+              Browse verified photographs of mountains, backwaters, beaches,
+              stays, and landmarks before building your itinerary.
             </p>
           </div>
 
           <form
             onSubmit={handleSearchSubmit}
-            className="flex flex-col sm:flex-row gap-2.5 w-full lg:w-auto lg:min-w-[400px]"
+            className="flex flex-col sm:flex-row gap-2.5 w-full lg:w-auto lg:min-w-[420px] rounded-2xl sm:rounded-full bg-white p-1.5 border border-safar-border shadow-[0_6px_20px_rgba(15,37,68,0.05)]"
           >
             <div className="relative flex-1">
               <Search
-                className="w-4 h-4 text-wandor-muted absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none"
+                className="w-4 h-4 text-safar-orange absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none"
                 aria-hidden="true"
               />
               <input
@@ -189,13 +189,13 @@ export default function DestinationGallery({
                 placeholder="Search Munnar, Paris, Bali, Eiffel Tower..."
                 aria-label="Search destination or attraction photography"
                 maxLength={120}
-                className="w-full rounded-full border border-black/15 bg-white pl-10 pr-4 py-2.5 text-sm text-wandor-text outline-none focus:border-black"
+                className="w-full rounded-full bg-transparent pl-10 pr-4 py-2 text-sm text-safar-navy placeholder:text-safar-slate/70 outline-none"
               />
             </div>
             <button
               type="submit"
               disabled={searchLoading}
-              className="cursor-pointer rounded-full bg-wandor-dark px-5 py-2.5 text-xs font-medium uppercase tracking-[0.04em] text-[#fafafa] hover:bg-[#333] transition-colors disabled:opacity-60 whitespace-nowrap shrink-0"
+              className="cursor-pointer rounded-full bg-safar-navy px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.04em] text-white hover:bg-safar-navyHover transition-colors disabled:opacity-60 whitespace-nowrap shrink-0"
             >
               {searchLoading ? 'Searching...' : 'Search Photos'}
             </button>
@@ -207,7 +207,7 @@ export default function DestinationGallery({
           <div
             role="tablist"
             aria-label="Filter destination photography by category"
-            className="flex flex-wrap items-center gap-1.5"
+            className="flex flex-wrap items-center gap-2"
           >
             {CATEGORY_TABS.map((tab) => (
               <button
@@ -216,10 +216,10 @@ export default function DestinationGallery({
                 role="tab"
                 aria-selected={activeCategory === tab.id}
                 onClick={() => handleCategoryChange(tab.id)}
-                className={`cursor-pointer rounded-full px-3.5 py-2 text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                className={`cursor-pointer rounded-full px-4 py-2 text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
                   activeCategory === tab.id
-                    ? 'bg-wandor-dark text-[#fafafa]'
-                    : 'border border-black/15 bg-white text-wandor-text hover:bg-black/5'
+                    ? 'bg-safar-navy text-white shadow-xs'
+                    : 'border border-safar-border bg-white text-safar-navy hover:bg-safar-skySoft'
                 }`}
               >
                 {tab.label}
@@ -227,17 +227,17 @@ export default function DestinationGallery({
             ))}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 text-xs text-wandor-muted">
-            <span>Popular:</span>
+          <div className="flex flex-wrap items-center gap-2.5 text-xs text-safar-slate">
+            <span className="font-medium text-safar-navy">Popular:</span>
             {QUICK_DESTINATIONS.map((name) => (
               <button
                 key={name}
                 type="button"
                 onClick={() => handleQuickPick(name)}
-                className={`cursor-pointer transition-colors hover:text-wandor-text ${
+                className={`cursor-pointer transition-colors hover:text-safar-orange ${
                   activeSearchQuery.toLowerCase() === name.toLowerCase()
-                    ? 'font-semibold text-wandor-prompt underline'
-                    : 'underline decoration-black/20'
+                    ? 'font-semibold text-safar-orange underline underline-offset-4'
+                    : 'underline decoration-safar-border underline-offset-4'
                 }`}
               >
                 {name}
@@ -254,7 +254,7 @@ export default function DestinationGallery({
                     setSearchResult(null);
                     setSearchError(null);
                   }}
-                  className="cursor-pointer font-medium text-wandor-text hover:underline"
+                  className="cursor-pointer font-semibold text-safar-navy hover:text-safar-orange transition-colors"
                 >
                   Reset View
                 </button>
@@ -266,12 +266,12 @@ export default function DestinationGallery({
         {/* SEARCH RESULTS VIEW */}
         {isSearchMode ? (
           <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-safar-border bg-white px-5 py-4 shadow-[0_4px_18px_rgba(15,37,68,0.03)]">
               <div>
-                <h3 className="text-xl font-medium tracking-[-0.02em] text-wandor-text">
+                <h3 className="text-xl font-semibold tracking-[-0.02em] text-safar-navy">
                   {searchResult?.resolvedLocation || activeSearchQuery}
                 </h3>
-                <p className="text-xs text-wandor-muted">
+                <p className="text-xs text-safar-slate">
                   {searchLoading
                     ? `Fetching real photographs for ${activeSearchQuery}...`
                     : searchResult
@@ -280,7 +280,7 @@ export default function DestinationGallery({
                 </p>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2.5">
                 {searchResult && searchResult.photos.length > 0 && (
                   <button
                     type="button"
@@ -292,7 +292,7 @@ export default function DestinationGallery({
                         initialPhotos: searchResult.photos,
                       })
                     }
-                    className="cursor-pointer rounded-full border border-black/15 px-4 py-2 text-xs font-medium uppercase tracking-[0.04em] text-wandor-text hover:bg-black/5"
+                    className="cursor-pointer rounded-full border border-safar-border bg-safar-skySoft px-4 py-2 text-xs font-semibold uppercase tracking-[0.04em] text-safar-navy hover:bg-safar-sky transition-colors whitespace-nowrap"
                   >
                     Open Full Gallery
                   </button>
@@ -300,7 +300,7 @@ export default function DestinationGallery({
                 <button
                   type="button"
                   onClick={() => onSelectDestinationForTrip(activeSearchQuery)}
-                  className="cursor-pointer rounded-full bg-wandor-dark px-4 py-2 text-xs font-medium uppercase tracking-[0.04em] text-[#fafafa] hover:bg-[#333]"
+                  className="cursor-pointer rounded-full bg-safar-orange px-4 py-2 text-xs font-semibold uppercase tracking-[0.04em] text-white hover:bg-safar-orangeHover transition-colors whitespace-nowrap"
                 >
                   Plan Trip Here
                 </button>
@@ -329,22 +329,22 @@ export default function DestinationGallery({
                 {Array.from({ length: 8 }).map((_, idx) => (
                   <div
                     key={idx}
-                    className="rounded-2xl border border-black/10 overflow-hidden"
+                    className="rounded-[22px] border border-safar-border bg-white overflow-hidden"
                   >
-                    <div className="aspect-[4/3] w-full animate-pulse bg-black/[0.06]" />
+                    <div className="aspect-[4/3] w-full animate-pulse bg-safar-sky" />
                     <div className="p-3.5 space-y-2">
-                      <div className="h-3.5 w-2/3 rounded bg-black/[0.06] animate-pulse" />
-                      <div className="h-3 w-1/2 rounded bg-black/[0.04] animate-pulse" />
+                      <div className="h-3.5 w-2/3 rounded bg-safar-sky animate-pulse" />
+                      <div className="h-3 w-1/2 rounded bg-safar-skySoft animate-pulse" />
                     </div>
                   </div>
                 ))}
               </div>
             ) : searchResult && searchResult.photos.length === 0 ? (
-              <div className="rounded-[24px] border border-black/10 p-10 text-center space-y-3">
-                <p className="text-base font-medium text-wandor-text">
+              <div className="rounded-[24px] border border-safar-border bg-white p-10 text-center space-y-3">
+                <p className="text-base font-semibold text-safar-navy">
                   No verified photographs found for &ldquo;{activeSearchQuery}&rdquo;
                 </p>
-                <p className="text-sm text-wandor-muted">
+                <p className="text-sm text-safar-slate">
                   Try searching the main city, region, or landmark name.
                 </p>
               </div>
@@ -353,7 +353,7 @@ export default function DestinationGallery({
                 {(searchResult?.photos ?? []).map((photo: DestinationPhoto, idx) => (
                   <article
                     key={photo.id}
-                    className="group rounded-2xl border border-black/10 bg-white overflow-hidden flex flex-col justify-between transition-shadow hover:shadow-md"
+                    className="group rounded-[22px] border border-safar-border bg-white overflow-hidden flex flex-col justify-between shadow-[0_6px_22px_rgba(15,37,68,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_32px_rgba(15,37,68,0.09)]"
                   >
                     <button
                       type="button"
@@ -376,17 +376,17 @@ export default function DestinationGallery({
                       />
                     </button>
 
-                    <div className="p-3.5 space-y-1.5">
-                      <p className="text-xs font-medium text-wandor-text line-clamp-1">
+                    <div className="p-4 space-y-1.5">
+                      <p className="text-xs font-semibold text-safar-navy line-clamp-1">
                         {photo.title}
                       </p>
-                      <p className="text-[11px] text-wandor-muted line-clamp-1">
+                      <p className="text-[11px] text-safar-slate line-clamp-1">
                         Photo by{' '}
                         <a
                           href={photo.attribution.photographerUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="underline hover:text-wandor-text"
+                          className="underline hover:text-safar-navy"
                         >
                           {photo.attribution.photographerName}
                         </a>{' '}
@@ -395,7 +395,7 @@ export default function DestinationGallery({
                           href={photo.attribution.sourceUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="underline hover:text-wandor-text"
+                          className="underline hover:text-safar-navy"
                         >
                           {photo.attribution.sourceName}
                         </a>
@@ -431,12 +431,12 @@ export default function DestinationGallery({
                 {Array.from({ length: 8 }).map((_, idx) => (
                   <div
                     key={idx}
-                    className="rounded-2xl border border-black/10 overflow-hidden"
+                    className="rounded-[22px] border border-safar-border bg-white overflow-hidden"
                   >
-                    <div className="aspect-[4/3] w-full animate-pulse bg-black/[0.06]" />
+                    <div className="aspect-[4/3] w-full animate-pulse bg-safar-sky" />
                     <div className="p-4 space-y-2">
-                      <div className="h-4 w-1/2 rounded bg-black/[0.06] animate-pulse" />
-                      <div className="h-3 w-full rounded bg-black/[0.04] animate-pulse" />
+                      <div className="h-4 w-1/2 rounded bg-safar-sky animate-pulse" />
+                      <div className="h-3 w-full rounded bg-safar-skySoft animate-pulse" />
                     </div>
                   </div>
                 ))}
@@ -446,7 +446,7 @@ export default function DestinationGallery({
                 {filteredFeatured.map((card) => (
                   <article
                     key={card.id}
-                    className="group rounded-2xl border border-black/10 bg-white overflow-hidden flex flex-col justify-between transition-shadow hover:shadow-md"
+                    className="group rounded-[22px] border border-safar-border bg-white overflow-hidden flex flex-col justify-between shadow-[0_6px_22px_rgba(15,37,68,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_32px_rgba(15,37,68,0.09)]"
                   >
                     <div>
                       <button
@@ -470,35 +470,35 @@ export default function DestinationGallery({
                         />
                         <div
                           aria-hidden="true"
-                          className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/75 via-black/30 to-transparent"
+                          className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-safar-navy/85 via-safar-navy/35 to-transparent"
                         />
                         <div className="absolute inset-x-0 bottom-0 p-4 flex items-end justify-between gap-2 text-white">
                           <div>
-                            <p className="text-base font-medium leading-tight">
+                            <p className="text-base font-semibold leading-tight">
                               {card.name}
                             </p>
-                            <p className="text-xs text-white/85">
+                            <p className="text-xs text-blue-100">
                               {card.region} · {card.country}
                             </p>
                           </div>
-                          <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-white/15 backdrop-blur-sm text-white group-hover:bg-white group-hover:text-wandor-dark transition-colors shrink-0">
+                          <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-white/20 backdrop-blur-sm text-white group-hover:bg-safar-orange group-hover:text-white transition-colors shrink-0">
                             <ArrowUpRight className="w-4 h-4" />
                           </span>
                         </div>
                       </button>
 
                       <div className="p-4 space-y-2">
-                        <p className="text-xs text-wandor-muted leading-relaxed line-clamp-2">
+                        <p className="text-xs text-safar-slate leading-relaxed line-clamp-2">
                           {card.tagline}
                         </p>
                         {card.photo && (
-                          <p className="text-[11px] text-wandor-muted line-clamp-1">
+                          <p className="text-[11px] text-safar-slate/80 line-clamp-1">
                             Photo by{' '}
                             <a
                               href={card.photo.attribution.photographerUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="underline hover:text-wandor-text"
+                              className="underline hover:text-safar-navy"
                             >
                               {card.photo.attribution.photographerName}
                             </a>{' '}
@@ -507,7 +507,7 @@ export default function DestinationGallery({
                               href={card.photo.attribution.sourceUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="underline hover:text-wandor-text"
+                              className="underline hover:text-safar-navy"
                             >
                               {card.photo.attribution.sourceName}
                             </a>
@@ -516,7 +516,7 @@ export default function DestinationGallery({
                       </div>
                     </div>
 
-                    <div className="px-4 pb-4 pt-2 border-t border-black/5 flex items-center justify-between gap-2">
+                    <div className="px-4 pb-4 pt-2.5 border-t border-safar-border/70 flex items-center justify-between gap-2">
                       <button
                         type="button"
                         onClick={() =>
@@ -528,7 +528,7 @@ export default function DestinationGallery({
                             initialPhotos: card.photo ? [card.photo] : [],
                           })
                         }
-                        className="cursor-pointer text-xs font-medium text-wandor-text hover:underline"
+                        className="cursor-pointer text-xs font-semibold text-safar-navy hover:text-safar-navyHover hover:underline whitespace-nowrap"
                       >
                         View Gallery
                       </button>
@@ -538,7 +538,7 @@ export default function DestinationGallery({
                         onClick={() =>
                           onSelectDestinationForTrip(`${card.name}, ${card.country}`)
                         }
-                        className="cursor-pointer inline-flex items-center gap-1 text-xs font-medium text-wandor-prompt hover:underline"
+                        className="cursor-pointer inline-flex items-center gap-1 rounded-full bg-safar-orangeSoft px-3 py-1.5 text-xs font-semibold text-safar-orange hover:bg-safar-orange hover:text-white transition-colors whitespace-nowrap"
                       >
                         <MapPin className="w-3 h-3" aria-hidden="true" />
                         Plan Trip

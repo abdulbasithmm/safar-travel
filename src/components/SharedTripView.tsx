@@ -147,25 +147,25 @@ export default function SharedTripView({
   };
 
   return (
-    <div className="min-h-screen bg-white text-wandor-text">
+    <div className="min-h-screen bg-gradient-to-b from-safar-skySoft/80 via-white to-white text-safar-navy">
       {/* Header Bar */}
       <header
         data-print-hide="true"
-        className="sticky top-0 z-40 border-b border-black/10 bg-white/95 backdrop-blur-xs"
+        className="sticky top-0 z-40 border-b border-safar-border bg-white/95 backdrop-blur-xs"
       >
         <div className="max-w-[1200px] mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-4">
           <button
             type="button"
             onClick={onPlanOwnTrip}
-            className="cursor-pointer flex items-baseline gap-2.5 select-none hover:opacity-75 transition-opacity"
+            className="cursor-pointer flex items-baseline gap-2.5 select-none hover:opacity-80 transition-opacity"
           >
-            <span className="font-display text-3xl text-black leading-none">
+            <span className="font-display text-3xl text-safar-navy leading-none">
               SAFAR
             </span>
             <span
               lang="ar"
               dir="rtl"
-              className="font-sans text-base font-medium text-wandor-muted leading-none"
+              className="font-sans text-base font-semibold text-safar-orange leading-none"
             >
               سفر
             </span>
@@ -178,21 +178,21 @@ export default function SharedTripView({
                   type="button"
                   disabled={pdfExporting}
                   onClick={() => void handleDownloadPdf()}
-                  className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-black/15 bg-white px-4 py-2 text-xs font-medium uppercase tracking-[0.04em] text-wandor-text hover:bg-black/5 disabled:opacity-60"
+                  className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-safar-border bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.04em] text-safar-navy hover:bg-safar-skySoft disabled:opacity-60 whitespace-nowrap transition-colors"
                 >
                   {pdfExporting ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   ) : (
-                    <Download className="w-3.5 h-3.5 text-wandor-prompt" />
+                    <Download className="w-3.5 h-3.5 text-safar-orange" />
                   )}
                   {pdfExporting ? 'Preparing PDF...' : 'Download PDF'}
                 </button>
                 <button
                   type="button"
                   onClick={handlePrint}
-                  className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-black/15 bg-white px-4 py-2 text-xs font-medium uppercase tracking-[0.04em] text-wandor-text hover:bg-black/5"
+                  className="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-safar-border bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.04em] text-safar-navy hover:bg-safar-skySoft whitespace-nowrap transition-colors"
                 >
-                  <Printer className="w-3.5 h-3.5 text-wandor-prompt" />
+                  <Printer className="w-3.5 h-3.5 text-safar-orange" />
                   Print Trip
                 </button>
               </>
@@ -201,7 +201,7 @@ export default function SharedTripView({
             <button
               type="button"
               onClick={onPlanOwnTrip}
-              className="cursor-pointer inline-flex items-center gap-1.5 rounded-full bg-wandor-dark px-5 py-2 text-xs font-medium uppercase tracking-[0.04em] text-[#fafafa] hover:bg-[#333]"
+              className="cursor-pointer inline-flex items-center gap-1.5 rounded-full bg-safar-navy px-5 py-2 text-xs font-semibold uppercase tracking-[0.04em] text-white hover:bg-safar-navyHover whitespace-nowrap transition-colors"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               Plan Your Own Trip
@@ -213,26 +213,26 @@ export default function SharedTripView({
       <main className="max-w-[1200px] mx-auto px-6 py-12 md:py-16 safar-print-container">
         {loading ? (
           <div className="space-y-6">
-            <div className="h-44 rounded-[28px] animate-pulse bg-black/[0.05]" />
-            <div className="h-36 rounded-[28px] animate-pulse bg-black/[0.04]" />
-            <div className="h-64 rounded-[28px] animate-pulse bg-black/[0.04]" />
+            <div className="h-44 rounded-[28px] animate-pulse bg-safar-sky" />
+            <div className="h-36 rounded-[28px] animate-pulse bg-safar-skySoft" />
+            <div className="h-64 rounded-[28px] animate-pulse bg-safar-skySoft" />
           </div>
         ) : !record ? (
-          <div className="rounded-[28px] border border-black/10 p-10 md:p-14 text-center space-y-4 max-w-xl mx-auto">
-            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-wandor-prompt">
+          <div className="rounded-[28px] border border-safar-border bg-white p-10 md:p-14 text-center space-y-4 max-w-xl mx-auto shadow-[0_10px_32px_rgba(15,37,68,0.05)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-safar-orange">
               SAFAR · Shared Itinerary
             </p>
-            <h1 className="text-2xl font-medium tracking-[-0.02em] text-wandor-text">
+            <h1 className="text-2xl font-semibold tracking-[-0.02em] text-safar-navy">
               This shared itinerary is unavailable
             </h1>
-            <p className="text-sm text-wandor-muted leading-relaxed">
+            <p className="text-sm text-safar-slate leading-relaxed">
               The link may have expired, been revoked by its owner, or does not exist.
             </p>
             <div className="pt-2">
               <button
                 type="button"
                 onClick={onPlanOwnTrip}
-                className="cursor-pointer rounded-full bg-wandor-dark px-6 py-3 text-xs font-medium uppercase tracking-[0.04em] text-[#fafafa] hover:bg-[#333]"
+                className="cursor-pointer rounded-full bg-safar-navy px-6 py-3 text-xs font-semibold uppercase tracking-[0.04em] text-white hover:bg-safar-navyHover transition-colors"
               >
                 Plan a New Trip with SAFAR
               </button>
@@ -243,7 +243,7 @@ export default function SharedTripView({
             {exportStatus && (
               <div
                 data-print-hide="true"
-                className="rounded-2xl border border-black/10 bg-black/[0.03] px-5 py-3 text-xs text-wandor-text"
+                className="rounded-2xl border border-safar-border bg-safar-skySoft px-5 py-3 text-xs font-medium text-safar-navy"
               >
                 {exportStatus}
               </div>
@@ -259,9 +259,9 @@ export default function SharedTripView({
             )}
 
             {/* Overview Card */}
-            <div className="rounded-[28px] border border-black/10 p-6 md:p-8 space-y-5 safar-print-card">
-              <div className="flex flex-wrap items-center gap-3 text-xs font-medium uppercase tracking-[0.04em] text-wandor-muted">
-                <span className="inline-flex items-center gap-1 text-wandor-prompt">
+            <div className="rounded-[28px] border border-safar-border bg-gradient-to-br from-safar-skySoft/80 via-white to-white p-6 md:p-8 space-y-5 shadow-[0_10px_32px_rgba(15,37,68,0.05)] safar-print-card">
+              <div className="flex flex-wrap items-center gap-3 text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
+                <span className="inline-flex items-center gap-1 text-safar-orange">
                   <MapPin className="w-3.5 h-3.5" />
                   {record.destination}
                   {record.country ? ` (${record.country})` : ''}
@@ -282,12 +282,12 @@ export default function SharedTripView({
                 <span>{record.language === 'ml' ? 'മലയാളം' : 'English'}</span>
               </div>
 
-              <h1 className="font-sans text-2xl md:text-4xl font-medium tracking-[-0.02em] text-wandor-text">
+              <h1 className="font-sans text-2xl md:text-4xl font-semibold tracking-[-0.02em] text-safar-navy">
                 {record.title}
               </h1>
 
               {(record.startingLocation || record.departureDate) && (
-                <p className="text-xs text-wandor-muted">
+                <p className="text-xs text-safar-slate">
                   {[
                     record.startingLocation
                       ? `From: ${record.startingLocation}`
@@ -303,16 +303,16 @@ export default function SharedTripView({
                 </p>
               )}
 
-              <p className="text-base text-wandor-muted leading-relaxed">
+              <p className="text-base text-safar-slate leading-relaxed">
                 {record.tripSummary}
               </p>
 
               {record.notes && record.notes.trim() && (
-                <div className="rounded-2xl border border-black/10 bg-black/[0.02] p-4 space-y-1">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.05em] text-wandor-prompt">
+                <div className="rounded-2xl border border-safar-border bg-safar-skySoft/70 p-4 space-y-1">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.05em] text-safar-orange">
                     Traveler Notes
                   </p>
-                  <p className="text-sm text-wandor-text leading-relaxed whitespace-pre-wrap">
+                  <p className="text-sm text-safar-navy leading-relaxed whitespace-pre-wrap">
                     {record.notes}
                   </p>
                 </div>
@@ -321,17 +321,17 @@ export default function SharedTripView({
               {photos.length > 0 && (
                 <div
                   data-print-hide="true"
-                  className="pt-4 border-t border-black/10 space-y-3"
+                  className="pt-4 border-t border-safar-border space-y-3"
                 >
-                  <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.04em] text-wandor-muted">
-                    <Camera className="w-3.5 h-3.5 text-wandor-prompt" />
+                  <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
+                    <Camera className="w-3.5 h-3.5 text-safar-orange" />
                     Destination Photography · {record.destination}
                   </span>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {photos.slice(0, 4).map((photo) => (
                       <div
                         key={photo.id}
-                        className="rounded-xl overflow-hidden border border-black/10"
+                        className="rounded-xl overflow-hidden border border-safar-border"
                       >
                         <ResponsivePhoto
                           photo={photo}
@@ -347,19 +347,19 @@ export default function SharedTripView({
             </div>
 
             {/* Budget Breakdown */}
-            <div className="rounded-[28px] border border-black/10 p-6 md:p-8 space-y-6 safar-print-card">
+            <div className="rounded-[28px] border border-safar-border bg-white p-6 md:p-8 space-y-6 shadow-[0_8px_26px_rgba(15,37,68,0.04)] safar-print-card">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-2.5">
-                  <Wallet className="w-5 h-5 text-wandor-prompt" />
-                  <h2 className="text-xl font-medium tracking-[-0.02em] text-wandor-text">
+                  <Wallet className="w-5 h-5 text-safar-orange" />
+                  <h2 className="text-xl font-semibold tracking-[-0.02em] text-safar-navy">
                     Estimated Budget ({record.currency})
                   </h2>
                 </div>
                 <div className="text-left sm:text-right">
-                  <p className="text-xs uppercase tracking-[0.04em] text-wandor-muted">
+                  <p className="text-xs uppercase tracking-[0.04em] text-safar-slate">
                     Total Estimated Cost
                   </p>
-                  <p className="text-2xl font-semibold text-wandor-text tabular-nums">
+                  <p className="text-2xl font-semibold text-safar-navy tabular-nums">
                     {formatMoney(record.totalEstimatedBudget, record.currency)}
                   </p>
                 </div>
@@ -376,19 +376,19 @@ export default function SharedTripView({
                 ).map(([label, amount]) => (
                   <div
                     key={label}
-                    className="rounded-2xl border border-black/10 p-4 flex flex-col gap-1.5"
+                    className="rounded-2xl border border-safar-border bg-safar-skySoft/60 p-4 flex flex-col gap-1.5"
                   >
-                    <span className="text-xs font-medium uppercase tracking-[0.04em] text-wandor-muted">
+                    <span className="text-xs font-semibold uppercase tracking-[0.04em] text-safar-slate">
                       {label}
                     </span>
-                    <span className="font-sans text-lg font-medium text-wandor-text tabular-nums">
+                    <span className="font-sans text-lg font-semibold text-safar-navy tabular-nums">
                       {formatMoney(amount, record.currency)}
                     </span>
                   </div>
                 ))}
               </div>
 
-              <p className="text-xs text-wandor-muted">
+              <p className="text-xs text-safar-slate">
                 {record.budgetBreakdown.disclaimer}
               </p>
             </div>
@@ -405,8 +405,8 @@ export default function SharedTripView({
             {/* Day-by-Day Schedule */}
             <div className="space-y-5">
               <div className="flex items-center gap-2.5">
-                <Calendar className="w-5 h-5 text-wandor-prompt" />
-                <h2 className="text-xl font-medium tracking-[-0.02em] text-wandor-text">
+                <Calendar className="w-5 h-5 text-safar-orange" />
+                <h2 className="text-xl font-semibold tracking-[-0.02em] text-safar-navy">
                   Day-by-Day Schedule
                 </h2>
               </div>
@@ -415,19 +415,19 @@ export default function SharedTripView({
                 {record.dailyItinerary.map((day) => (
                   <div
                     key={day.day}
-                    className="rounded-[24px] border border-black/10 p-6 space-y-4 safar-print-card"
+                    className="rounded-[24px] border border-safar-border bg-white p-6 space-y-4 shadow-[0_6px_22px_rgba(15,37,68,0.03)] safar-print-card"
                   >
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-black/10">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-safar-border">
                       <div>
-                        <span className="text-xs font-semibold uppercase tracking-[0.04em] text-wandor-prompt tabular-nums">
+                        <span className="text-xs font-semibold uppercase tracking-[0.04em] text-safar-orange tabular-nums">
                           Day {day.day}
                           {day.date ? ` · ${day.date}` : ''}
                         </span>
-                        <h3 className="text-lg font-medium text-wandor-text">
+                        <h3 className="text-lg font-semibold text-safar-navy">
                           {day.theme}
                         </h3>
                       </div>
-                      <span className="text-xs text-wandor-muted">
+                      <span className="text-xs text-safar-slate">
                         Est. transit: {day.estimatedTravelTime}
                       </span>
                     </div>
@@ -436,33 +436,33 @@ export default function SharedTripView({
                       {day.schedule.map((slot, idx) => (
                         <div
                           key={buildScheduleStopId(day.day, idx)}
-                          className="grid grid-cols-1 md:grid-cols-[140px_1fr] gap-2 md:gap-6 py-2.5 border-b border-black/5 last:border-b-0"
+                          className="grid grid-cols-1 md:grid-cols-[140px_1fr] gap-2 md:gap-6 py-2.5 border-b border-safar-border/50 last:border-b-0"
                         >
-                          <div className="text-xs font-semibold text-wandor-text tabular-nums">
+                          <div className="text-xs font-semibold text-safar-navy tabular-nums">
                             <div>{slot.time}</div>
                             {slot.travelTimeFromPrev && (
-                              <div className="text-wandor-muted font-normal mt-0.5">
+                              <div className="text-safar-slate font-normal mt-0.5">
                                 {slot.travelTimeFromPrev}
                               </div>
                             )}
                           </div>
                           <div className="space-y-1">
                             <div className="flex flex-wrap items-baseline justify-between gap-2">
-                              <p className="text-sm font-medium text-wandor-text">
+                              <p className="text-sm font-semibold text-safar-navy">
                                 {slot.activity}
                               </p>
                               {slot.estimatedCost > 0 && (
-                                <span className="text-xs font-medium text-wandor-muted tabular-nums">
+                                <span className="text-xs font-medium text-safar-slate tabular-nums">
                                   ~{formatMoney(slot.estimatedCost, record.currency)}
                                 </span>
                               )}
                             </div>
-                            <p className="text-xs text-wandor-muted">
+                            <p className="text-xs text-safar-slate">
                               {slot.location}
                               {slot.visitingHours ? ` · Hours: ${slot.visitingHours}` : ''}
                             </p>
                             {slot.notes && (
-                              <p className="text-xs text-wandor-muted leading-relaxed">
+                              <p className="text-xs text-safar-slate leading-relaxed">
                                 {slot.notes}
                               </p>
                             )}
@@ -477,23 +477,23 @@ export default function SharedTripView({
 
             {/* Attractions, Stays, Food */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="rounded-[24px] border border-black/10 p-6 space-y-4 safar-print-card">
+              <div className="rounded-[24px] border border-safar-border bg-white p-6 space-y-4 shadow-[0_6px_22px_rgba(15,37,68,0.03)] safar-print-card">
                 <div className="flex items-center gap-2">
-                  <Compass className="w-4 h-4 text-wandor-prompt" />
-                  <h2 className="text-base font-medium text-wandor-text">
+                  <Compass className="w-4 h-4 text-safar-orange" />
+                  <h2 className="text-base font-semibold text-safar-navy">
                     Key Attractions
                   </h2>
                 </div>
                 <div className="space-y-4">
                   {record.attractions.map((item, idx) => (
                     <div key={`${item.name}-${idx}`} className="space-y-1">
-                      <p className="text-sm font-medium text-wandor-text">
+                      <p className="text-sm font-semibold text-safar-navy">
                         {item.name}
                       </p>
-                      <p className="text-xs text-wandor-muted">
+                      <p className="text-xs text-safar-slate">
                         Best time: {item.bestTimeToVisit} · {item.estimatedDuration}
                       </p>
-                      <p className="text-xs text-wandor-muted leading-relaxed">
+                      <p className="text-xs text-safar-slate leading-relaxed">
                         {item.description}
                       </p>
                     </div>
@@ -501,23 +501,23 @@ export default function SharedTripView({
                 </div>
               </div>
 
-              <div className="rounded-[24px] border border-black/10 p-6 space-y-4 safar-print-card">
+              <div className="rounded-[24px] border border-safar-border bg-white p-6 space-y-4 shadow-[0_6px_22px_rgba(15,37,68,0.03)] safar-print-card">
                 <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-wandor-prompt" />
-                  <h2 className="text-base font-medium text-wandor-text">
+                  <MapPin className="w-4 h-4 text-safar-orange" />
+                  <h2 className="text-base font-semibold text-safar-navy">
                     Stay Suggestions
                   </h2>
                 </div>
                 <div className="space-y-4">
                   {record.accommodationSuggestions.map((stay, idx) => (
                     <div key={`${stay.name}-${idx}`} className="space-y-1">
-                      <p className="text-sm font-medium text-wandor-text">
+                      <p className="text-sm font-semibold text-safar-navy">
                         {stay.name}
                       </p>
-                      <p className="text-xs text-wandor-muted">
+                      <p className="text-xs text-safar-slate">
                         {stay.area} · {stay.tier} · {stay.approximateNightlyRange}
                       </p>
-                      <p className="text-xs text-wandor-muted leading-relaxed">
+                      <p className="text-xs text-safar-slate leading-relaxed">
                         {stay.notes}
                       </p>
                     </div>
@@ -525,23 +525,23 @@ export default function SharedTripView({
                 </div>
               </div>
 
-              <div className="rounded-[24px] border border-black/10 p-6 space-y-4 safar-print-card">
+              <div className="rounded-[24px] border border-safar-border bg-white p-6 space-y-4 shadow-[0_6px_22px_rgba(15,37,68,0.03)] safar-print-card">
                 <div className="flex items-center gap-2">
-                  <Utensils className="w-4 h-4 text-wandor-prompt" />
-                  <h2 className="text-base font-medium text-wandor-text">
+                  <Utensils className="w-4 h-4 text-safar-orange" />
+                  <h2 className="text-base font-semibold text-safar-navy">
                     Food Recommendations
                   </h2>
                 </div>
                 <div className="space-y-4">
                   {record.foodRecommendations.map((food, idx) => (
                     <div key={`${food.dishOrSpot}-${idx}`} className="space-y-1">
-                      <p className="text-sm font-medium text-wandor-text">
+                      <p className="text-sm font-semibold text-safar-navy">
                         {food.dishOrSpot}
                       </p>
-                      <p className="text-xs text-wandor-muted">
+                      <p className="text-xs text-safar-slate">
                         {food.type} · {food.area} · {food.approximateCostRange}
                       </p>
-                      <p className="text-xs text-wandor-muted leading-relaxed">
+                      <p className="text-xs text-safar-slate leading-relaxed">
                         {food.notes}
                       </p>
                     </div>
@@ -552,11 +552,11 @@ export default function SharedTripView({
 
             {/* Travel Tips */}
             {record.travelTips.length > 0 && (
-              <div className="rounded-[24px] border border-black/10 p-6 space-y-3 safar-print-card">
-                <h2 className="text-base font-medium text-wandor-text">
+              <div className="rounded-[24px] border border-safar-border bg-safar-skySoft/60 p-6 space-y-3 safar-print-card">
+                <h2 className="text-base font-semibold text-safar-navy">
                   Travel Tips
                 </h2>
-                <ul className="space-y-2 text-sm text-wandor-muted list-disc pl-5">
+                <ul className="space-y-2 text-sm text-safar-slate list-disc pl-5">
                   {record.travelTips.map((tip, idx) => (
                     <li key={idx} className="leading-relaxed">
                       {tip}
