@@ -1,10 +1,8 @@
 import { useRef, useState } from 'react';
 import type { ChangeEvent, KeyboardEvent } from 'react';
 import { Upload } from 'lucide-react';
+import SafarHeroBackground from '@/components/SafarHeroBackground';
 import { useAuth } from '@/context/AuthContext';
-
-const HERO_VIDEO_SRC =
-  'https://pollen-batch-41236914.figma.site/_components/v2/f0ee2dae7671c170c34f12e31c4cb41418976c98/769c564298c132f7919405cd9f17c1b1231f341d.769c5642.mp4';
 
 const PROMPT_TEXT =
   "I'm planning a 7-day trip to Japan in October. I love food, hidden cafes, scenic hikes, and want to avoid crowds....";
@@ -82,22 +80,7 @@ export default function Hero({ onPlanRequest, onOpenTrips }: HeroProps) {
       data-print-hide="true"
       className="relative min-h-svh w-full overflow-hidden"
     >
-      <video
-        className="absolute inset-0 w-full h-full object-cover z-0"
-        src={HERO_VIDEO_SRC}
-        autoPlay
-        muted
-        loop
-        playsInline
-      />
-
-      <div
-        className="absolute inset-x-0 top-0 h-[687px] pointer-events-none z-[1]"
-        style={{
-          background:
-            'linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(255,255,255,0) 100%)',
-        }}
-      />
+      <SafarHeroBackground />
 
       <div className="relative z-[2] max-w-[1360px] mx-auto">
         <nav className="relative flex items-center justify-between px-20 pt-6 pb-4 max-md:px-6 max-md:pt-5">
